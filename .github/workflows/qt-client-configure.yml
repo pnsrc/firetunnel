@@ -54,6 +54,12 @@ jobs:
 
       - name: Inject trusttunnel-qt into upstream
         run: |
+          if [ ! -d upstream/.git ]; then
+            echo "Upstream checkout not found, trying direct clone fallback..."
+            rm -rf upstream
+            git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git upstream
+          fi
+          test -d upstream/.git
           rm -rf upstream/trusttunnel-qt
           mkdir -p upstream/trusttunnel-qt
           find . -mindepth 1 -maxdepth 1 \
