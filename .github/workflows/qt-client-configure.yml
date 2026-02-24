@@ -1,0 +1,43 @@
+name: Qt Client Configure
+
+on:
+  push:
+    paths:
+      - 'trusttunnel-qt/**'
+      - 'conanfile.py'
+      - 'conandata.yml'
+      - 'scripts/bootstrap_conan_deps.py'
+      - '.github/workflows/qt-client-configure.yml'
+  pull_request:
+    paths:
+      - 'trusttunnel-qt/**'
+      - 'conanfile.py'
+      - 'conandata.yml'
+      - 'scripts/bootstrap_conan_deps.py'
+      - '.github/workflows/qt-client-configure.yml'
+  workflow_dispatch:
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build qt6-base-dev qt6-base-dev-tools
+          pip install -r requirements.txt
+          pip install conan~=2.12
+
+      - name: Bootstrap Conan dependencies
+        run: ./scripts/bootstrap_conan_deps.py
+
+      - name: Configure from trusttunnel-qt Makefile
+        run: make -C trusttunnel-qt configure QT_DISABLE_HTTP3=ON
