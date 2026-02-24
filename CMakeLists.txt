@@ -23,20 +23,20 @@ endif()
 
 add_executable(trusttunnel-qt MACOSX_BUNDLE
     main.cpp
-    MainWindow.cpp
-    MainWindow.h
-    AppSettings.cpp
-    AppSettings.h
-    ConfigStore.cpp
-    ConfigStore.h
-    ConfigInspector.cpp
-    ConfigInspector.h
-    AppUiUtils.cpp
-    AppUiUtils.h
-    SettingsDialog.cpp
-    SettingsDialog.h
-    qt_trusttunnel_client.cpp
-    qt_trusttunnel_client.h
+    src/ui/MainWindow.cpp
+    include/ui/MainWindow.h
+    src/core/AppSettings.cpp
+    include/core/AppSettings.h
+    src/core/ConfigStore.cpp
+    include/core/ConfigStore.h
+    src/core/ConfigInspector.cpp
+    include/core/ConfigInspector.h
+    src/core/AppUiUtils.cpp
+    include/core/AppUiUtils.h
+    src/ui/SettingsDialog.cpp
+    include/ui/SettingsDialog.h
+    src/vpn/qt_trusttunnel_client.cpp
+    include/vpn/qt_trusttunnel_client.h
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
@@ -45,12 +45,39 @@ target_compile_definitions(trusttunnel-qt PRIVATE
 )
 
 add_executable(trusttunnel-qt-helper
-    helper_main.cpp
+    src/vpn/helper_main.cpp
+)
+
+target_include_directories(trusttunnel-qt PRIVATE
+    include
+    include/core
+    include/ui
+    include/vpn
+)
+target_include_directories(trusttunnel-qt-helper PRIVATE
+    include
+    include/core
+    include/ui
+    include/vpn
 )
 
 if (TARGET vpnlibs_trusttunnel)
     target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network vpnlibs_trusttunnel)
     target_link_libraries(trusttunnel-qt-helper PRIVATE vpnlibs_trusttunnel)
+    target_include_directories(trusttunnel-qt PRIVATE
+        ../trusttunnel/include
+        ../common/include
+        ../core/include
+        ../net/include
+        ../tcpip/include
+    )
+    target_include_directories(trusttunnel-qt-helper PRIVATE
+        ../trusttunnel/include
+        ../common/include
+        ../core/include
+        ../net/include
+        ../tcpip/include
+    )
 else()
     # Standalone fallback (limited): keeps local IDE iteration possible.
     add_subdirectory(../trusttunnel-core trusttunnel-core-build)
