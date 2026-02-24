@@ -41,10 +41,19 @@ jobs:
 
       - name: Clone TrustTunnel monorepo
         run: |
-          git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git upstream
+          rm -rf upstream
+          for i in 1 2 3; do
+            git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git upstream && break
+            echo "Clone attempt $i failed, retrying..."
+            sleep 3
+          done
+          test -d upstream/.git
           rm -rf upstream/trusttunnel-qt
           mkdir -p upstream/trusttunnel-qt
-          rsync -a --delete --exclude '.git' --exclude 'upstream' ./ upstream/trusttunnel-qt/
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name 'upstream' \
+            -exec cp -a {} upstream/trusttunnel-qt/ \;
           test -f upstream/requirements.txt
 
       - name: Install system dependencies (Linux)
