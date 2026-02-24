@@ -37,22 +37,23 @@ jobs:
 
       - name: Clone TrustTunnel monorepo
         run: |
-          git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git TrustTunnel
-          rm -rf TrustTunnel/trusttunnel-qt
-          mkdir -p TrustTunnel/trusttunnel-qt
-          rsync -a --delete --exclude '.git' --exclude 'TrustTunnel' ./ TrustTunnel/trusttunnel-qt/
+          git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git upstream
+          rm -rf upstream/trusttunnel-qt
+          mkdir -p upstream/trusttunnel-qt
+          rsync -a --delete --exclude '.git' --exclude 'upstream' ./ upstream/trusttunnel-qt/
+          test -f upstream/requirements.txt
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build qt6-base-dev qt6-base-dev-tools
-          pip install -r TrustTunnel/requirements.txt
+          pip install -r upstream/requirements.txt
           pip install conan~=2.12
 
       - name: Bootstrap Conan dependencies
         run: ./scripts/bootstrap_conan_deps.py
-        working-directory: TrustTunnel
+        working-directory: upstream
 
       - name: Configure from trusttunnel-qt Makefile
         run: make -C trusttunnel-qt configure QT_DISABLE_HTTP3=ON
-        working-directory: TrustTunnel
+        working-directory: upstream
