@@ -3,27 +3,23 @@ name: Qt Client Build
 on:
   push:
     paths:
-      - 'trusttunnel-qt/**'
-      - 'trusttunnel/**'
-      - 'core/**'
-      - 'common/**'
-      - 'net/**'
-      - 'tcpip/**'
-      - 'conanfile.py'
-      - 'conandata.yml'
-      - 'scripts/bootstrap_conan_deps.py'
+      - 'src/**'
+      - 'include/**'
+      - 'assets/**'
+      - 'docs/**'
+      - 'CMakeLists.txt'
+      - 'Makefile'
+      - 'main.cpp'
       - '.github/workflows/qt-client-build.yml'
   pull_request:
     paths:
-      - 'trusttunnel-qt/**'
-      - 'trusttunnel/**'
-      - 'core/**'
-      - 'common/**'
-      - 'net/**'
-      - 'tcpip/**'
-      - 'conanfile.py'
-      - 'conandata.yml'
-      - 'scripts/bootstrap_conan_deps.py'
+      - 'src/**'
+      - 'include/**'
+      - 'assets/**'
+      - 'docs/**'
+      - 'CMakeLists.txt'
+      - 'Makefile'
+      - 'main.cpp'
       - '.github/workflows/qt-client-build.yml'
   workflow_dispatch:
 
@@ -43,30 +39,40 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Clone TrustTunnel monorepo
+        run: |
+          git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git TrustTunnel
+          rm -rf TrustTunnel/trusttunnel-qt
+          mkdir -p TrustTunnel/trusttunnel-qt
+          rsync -a --delete --exclude '.git' --exclude 'TrustTunnel' ./ TrustTunnel/trusttunnel-qt/
+
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build qt6-base-dev qt6-base-dev-tools
-          pip install -r requirements.txt
+          pip install -r TrustTunnel/requirements.txt
           pip install conan~=2.12
 
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           brew install ninja qt@6
-          pip install -r requirements.txt
+          pip install -r TrustTunnel/requirements.txt
           pip install conan~=2.12
 
       - name: Bootstrap Conan dependencies
         run: ./scripts/bootstrap_conan_deps.py
+        working-directory: TrustTunnel
 
       - name: Build Qt client (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: make -C trusttunnel-qt build QT_DISABLE_HTTP3=ON JOBS=4
+        working-directory: TrustTunnel
 
       - name: Build Qt client (macOS)
         if: matrix.os == 'macos-latest'
         run: make -C trusttunnel-qt build QT_DISABLE_HTTP3=ON JOBS=4
+        working-directory: TrustTunnel
         env:
           CMAKE_PREFIX_PATH: /opt/homebrew/opt/qt@6
