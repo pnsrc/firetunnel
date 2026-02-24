@@ -1,0 +1,86 @@
+cmake_minimum_required(VERSION 3.16)
+project(trusttunnel-qt VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(Qt6 COMPONENTS Widgets Network REQUIRED)
+
+set(FIRETUNNEL_GIT_VERSION "unknown")
+find_package(Git QUIET)
+if (GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE FIRETUNNEL_GIT_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+
+add_executable(trusttunnel-qt MACOSX_BUNDLE
+    main.cpp
+    MainWindow.cpp
+    MainWindow.h
+    AppSettings.cpp
+    AppSettings.h
+    ConfigStore.cpp
+    ConfigStore.h
+    ConfigInspector.cpp
+    ConfigInspector.h
+    AppUiUtils.cpp
+    AppUiUtils.h
+    SettingsDialog.cpp
+    SettingsDialog.h
+    qt_trusttunnel_client.cpp
+    qt_trusttunnel_client.h
+)
+
+target_compile_definitions(trusttunnel-qt PRIVATE
+    FIRETUNNEL_VERSION="${PROJECT_VERSION}"
+    FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
+)
+
+add_executable(trusttunnel-qt-helper
+    helper_main.cpp
+)
+
+if (TARGET vpnlibs_trusttunnel)
+    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network vpnlibs_trusttunnel)
+    target_link_libraries(trusttunnel-qt-helper PRIVATE vpnlibs_trusttunnel)
+else()
+    # Standalone fallback (limited): keeps local IDE iteration possible.
+    add_subdirectory(../trusttunnel-core trusttunnel-core-build)
+    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network trusttunnel_core)
+    target_link_libraries(trusttunnel-qt-helper PRIVATE trusttunnel_core)
+    target_include_directories(trusttunnel-qt PRIVATE
+        ../trusttunnel/include
+        ../trusttunnel/src
+        ../common/include
+        ../core/include
+        ../net/include
+        ../tcpip/include
+    )
+    target_include_directories(trusttunnel-qt-helper PRIVATE
+        ../trusttunnel/include
+        ../trusttunnel/src
+        ../common/include
+        ../core/include
+        ../net/include
+        ../tcpip/include
+    )
+endif()
+
+set_target_properties(trusttunnel-qt PROPERTIES
+    MACOSX_BUNDLE_BUNDLE_NAME "TrustTunnel Qt"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "com.trusttunnel.qtclient"
+)
+
+add_custom_command(TARGET trusttunnel-qt POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:trusttunnel-qt-helper>
+        $<TARGET_FILE_DIR:trusttunnel-qt>/trusttunnel-qt-helper
+)

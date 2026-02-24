@@ -1,0 +1,699 @@
+#include "MainWindow.h"
+
+#include <QApplication>
+#include <QAction>
+#include <QActionGroup>
+#include <QCloseEvent>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QGroupBox>
+#include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QPalette>
+#include <QProcess>
+#include <QPushButton>
+#include <QStatusBar>
+#include <QStyle>
+#include <QStyleHints>
+#include <QSystemTrayIcon>
+#include <QTabWidget>
+#include <QTextBrowser>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <QWidget>
+
+#include "AppSettings.h"
+#include "AppUiUtils.h"
+#include "ConfigInspector.h"
+#include "ConfigStore.h"
+#include "SettingsDialog.h"
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
+class MainWindow : public QMainWindow {
+public:
+    MainWindow() {
+        m_appSettings = loadAppSettings();
+        setupUi();
+        setupLogic();
+        applyTheme();
+        applyLanguage("en");
+        refreshStoredList();
+        if (m_configPath->text().trimmed().isEmpty() && m_configsList->count() > 0) {
+            m_configsList->setCurrentRow(0);
+            if (m_configsList->currentItem()) {
+                m_configPath->setText(m_configsList->currentItem()->text());
+            }
+        }
+        if (m_appSettings.auto_connect_on_start) {
+            QTimer::singleShot(400, this, [this]() {
+                if (!m_configPath->text().trimmed().isEmpty()) {
+                    m_connectButton->click();
+                } else {
+                    log(tr("Auto-connect skipped: no config selected"));
+                }
+            });
+        }
+    }
+
+protected:
+    void closeEvent(QCloseEvent *event) override {
+        if (m_tray && m_tray->isVisible()) {
+            hide();
+            statusBar()->showMessage(tr("Running in tray"), 3000);
+            m_tray->showMessage(windowTitle(), tr("Application minimized to tray"), QSystemTrayIcon::Information, 1500);
+            event->ignore();
+            return;
+        }
+        QMainWindow::closeEvent(event);
+    }
+
+private:
+    void setupUi() {
+        setWindowTitle("TrustTunnel Qt Client");
+        resize(980, 650);
+        setWindowIcon(makeAppIcon());
+        m_appMenu = menuBar()->addMenu("App");
+        auto *appMenu = m_appMenu;
+        m_settingsAction = appMenu->addAction("Settings");
+        appMenu->addSeparator();
+        m_quitAction = appMenu->addAction("Quit");
+
+        m_settingsMenu = menuBar()->addMenu("Settings");
+        m_settingsMenuAction = m_settingsMenu->addAction("Open Settings");
+
+        m_viewMenu = menuBar()->addMenu("View");
+        auto *viewMenu = m_viewMenu;
+        m_toggleLogsAction = viewMenu->addAction("Hide Logs");
+        m_toggleLogsAction->setCheckable(true);
+        m_toggleLogsAction->setChecked(true);
+
+        m_languageMenu = menuBar()->addMenu("Language");
+        auto *languageMenu = m_languageMenu;
+        auto *langGroup = new QActionGroup(this);
+        langGroup->setExclusive(true);
+        m_langEnAction = languageMenu->addAction("English");
+        m_langEnAction->setCheckable(true);
+        m_langRuAction = languageMenu->addAction("Русский");
+        m_langRuAction->setCheckable(true);
+        langGroup->addAction(m_langEnAction);
+        langGroup->addAction(m_langRuAction);
+        m_langEnAction->setChecked(true);
+
+        auto *root = new QWidget(this);
+        auto *layout = new QVBoxLayout(root);
+        layout->setContentsMargins(16, 16, 16, 16);
+        layout->setSpacing(12);
+
+        auto *topRow = new QHBoxLayout();
+        topRow->setSpacing(12);
+
+        m_configsBox = new QGroupBox(root);
+        m_configsBox->setObjectName("configsBox");
+        auto *configsLayout = new QVBoxLayout(m_configsBox);
+        m_configsList = new QListWidget(m_configsBox);
+        auto *configsButtons = new QHBoxLayout();
+        m_addConfigButton = new QPushButton(m_configsBox);
+        m_removeConfigButton = new QPushButton(m_configsBox);
+        m_pingConfigButton = new QPushButton(m_configsBox);
+        configsButtons->addWidget(m_addConfigButton);
+        configsButtons->addWidget(m_removeConfigButton);
+        configsButtons->addWidget(m_pingConfigButton);
+        configsLayout->addWidget(m_configsList);
+        configsLayout->addLayout(configsButtons);
+
+        m_controlBox = new QGroupBox(root);
+        m_controlBox->setObjectName("controlBox");
+        auto *controlLayout = new QVBoxLayout(m_controlBox);
+        controlLayout->setSpacing(10);
+        auto *pathRow = new QHBoxLayout();
+        m_configPath = new QLineEdit(m_controlBox);
+        m_browseButton = new QPushButton(m_controlBox);
+        m_viewConfigButton = new QPushButton(m_controlBox);
+        m_connectButton = new QPushButton(m_controlBox);
+        m_disconnectButton = new QPushButton(m_controlBox);
+        m_stateLabel = new QLabel(m_controlBox);
+        m_stateLabel->setObjectName("stateLabel");
+        m_stateLabel->setAlignment(Qt::AlignCenter);
+        m_connectButton->setObjectName("connectButton");
+        m_disconnectButton->setObjectName("disconnectButton");
+        m_connectButton->setMinimumHeight(42);
+        m_disconnectButton->setMinimumHeight(42);
+
+        m_configPath->setPlaceholderText("Path to TrustTunnel TOML config");
+        pathRow->addWidget(m_configPath);
+        pathRow->addWidget(m_browseButton);
+        pathRow->addWidget(m_viewConfigButton);
+        auto *actionRow = new QHBoxLayout();
+        actionRow->setSpacing(10);
+        actionRow->addWidget(m_connectButton);
+        actionRow->addWidget(m_disconnectButton);
+        controlLayout->addLayout(pathRow);
+        controlLayout->addLayout(actionRow);
+        controlLayout->addWidget(m_stateLabel);
+
+        topRow->addWidget(m_configsBox, 2);
+        topRow->addWidget(m_controlBox, 3);
+
+        m_logBox = new QGroupBox(root);
+        m_logBox->setObjectName("logBox");
+        auto *logLayout = new QVBoxLayout(m_logBox);
+        m_logView = new QTextEdit(m_logBox);
+        m_logView->setReadOnly(true);
+        logLayout->addWidget(m_logView);
+
+        layout->addLayout(topRow);
+        layout->addWidget(m_logBox, 1);
+
+        setCentralWidget(root);
+        setStyleSheet(
+                "QMainWindow{background:#f4f6fb;}"
+                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;"
+                "font-weight:600;color:#1f2a44;}"
+                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
+                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
+                "QPushButton:hover{background:#e5ecff;}"
+                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
+                "QPushButton#connectButton:hover{background:#1465df;}"
+                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
+                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
+                "QMenuBar{background:#f4f6fb;}"
+                "QStatusBar{background:#f4f6fb;color:#415170;}"
+        );
+
+        statusBar()->showMessage("Ready");
+
+        m_helper = new QProcess(this);
+        m_helper->setProcessChannelMode(QProcess::MergedChannels);
+
+        m_helperPath = QCoreApplication::applicationDirPath() + "/trusttunnel-qt-helper";
+        m_helperLogPath = m_appSettings.log_path;
+        m_helperPidPath = "/tmp/trusttunnel-qt-helper.pid";
+
+        m_logPollTimer = new QTimer(this);
+        m_logPollTimer->setInterval(400);
+
+        m_addConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
+        m_removeConfigButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+        m_pingConfigButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+        m_browseButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+        m_viewConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+        m_connectButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        m_disconnectButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+
+        if (QSystemTrayIcon::isSystemTrayAvailable()) {
+            auto *menu = new QMenu(this);
+            auto *openAction = menu->addAction("Open");
+            auto *exitAction = menu->addAction("Exit");
+
+            m_tray = new QSystemTrayIcon(this);
+            m_tray->setIcon(makeAppIcon());
+            m_tray->setContextMenu(menu);
+            m_tray->show();
+
+            connect(openAction, &QAction::triggered, this, [this]() {
+                showNormal();
+                raise();
+                activateWindow();
+            });
+            connect(exitAction, &QAction::triggered, this, [this]() {
+                m_forceExit = true;
+                if (m_helper->state() != QProcess::NotRunning) {
+                    m_helper->terminate();
+                    m_helper->waitForFinished(800);
+                }
+                qApp->quit();
+            });
+            connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                    showNormal();
+                    raise();
+                    activateWindow();
+                }
+            });
+
+            qApp->setQuitOnLastWindowClosed(false);
+        }
+    }
+
+    void setupLogic() {
+        connect(m_logPollTimer, &QTimer::timeout, this, [this]() {
+            QFile f(m_helperLogPath);
+            if (!f.exists() || !f.open(QIODevice::ReadOnly)) {
+                return;
+            }
+            if (m_logPos > f.size()) {
+                m_logPos = 0;
+            }
+            if (!f.seek(m_logPos)) {
+                return;
+            }
+            const QByteArray chunk = f.readAll();
+            m_logPos = f.pos();
+            appendLogChunk(chunk);
+        });
+
+        connect(m_toggleLogsAction, &QAction::toggled, this, [this](bool on) {
+            m_logBox->setVisible(on);
+            applyLanguage(m_currentLang);
+        });
+
+        connect(m_langEnAction, &QAction::triggered, this, [this]() { applyLanguage("en"); });
+        connect(m_langRuAction, &QAction::triggered, this, [this]() { applyLanguage("ru"); });
+        connect(m_settingsAction, &QAction::triggered, this, [this]() {
+            SettingsDialog dlg(m_currentLang, m_appSettings, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                m_appSettings.save_logs = dlg.saveLogs();
+                m_appSettings.log_level = dlg.logLevel();
+                const QString newPath = dlg.logPath();
+                if (!newPath.isEmpty()) {
+                    m_appSettings.log_path = newPath;
+                }
+                m_appSettings.theme_mode = dlg.themeMode();
+                m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_helperLogPath = m_appSettings.log_path;
+                saveAppSettings(m_appSettings);
+                applyTheme();
+                statusBar()->showMessage(tr("Settings saved"), 2000);
+            }
+        });
+        connect(m_settingsMenuAction, &QAction::triggered, this, [this]() {
+            SettingsDialog dlg(m_currentLang, m_appSettings, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                m_appSettings.save_logs = dlg.saveLogs();
+                m_appSettings.log_level = dlg.logLevel();
+                const QString newPath = dlg.logPath();
+                if (!newPath.isEmpty()) {
+                    m_appSettings.log_path = newPath;
+                }
+                m_appSettings.theme_mode = dlg.themeMode();
+                m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_helperLogPath = m_appSettings.log_path;
+                saveAppSettings(m_appSettings);
+                applyTheme();
+                statusBar()->showMessage(tr("Settings saved"), 2000);
+            }
+        });
+        connect(m_quitAction, &QAction::triggered, this, [this]() { close(); });
+
+        connect(m_addConfigButton, &QPushButton::clicked, this, [this]() {
+            const QString path = QFileDialog::getOpenFileName(
+                    this, tr("Select TrustTunnel config"), QString(), tr("TOML files (*.toml);;All files (*)"));
+            if (path.isEmpty()) {
+                return;
+            }
+            const QString normalized = QFileInfo(path).absoluteFilePath();
+            m_configPath->setText(normalized);
+            addCurrentToStorage();
+            refreshStoredList();
+        });
+
+        connect(m_removeConfigButton, &QPushButton::clicked, this, [this]() {
+            QListWidgetItem *item = m_configsList->currentItem();
+            if (!item) {
+                return;
+            }
+            const QString selected = item->text();
+            QStringList configs = loadStoredConfigs();
+            configs.removeAll(selected);
+            saveStoredConfigs(configs);
+            if (m_configPath->text() == selected) {
+                m_configPath->clear();
+            }
+            refreshStoredList();
+        });
+
+        connect(m_pingConfigButton, &QPushButton::clicked, this, [this]() {
+            QString path = m_configPath->text();
+            if (path.isEmpty() && m_configsList->currentItem()) {
+                path = m_configsList->currentItem()->text();
+            }
+            if (path.isEmpty()) {
+                log(tr("Ping: choose config first"));
+                return;
+            }
+            log(tr("Ping %1 ...").arg(path));
+            log(tr("Ping result: %1").arg(pingConfigFile(path)));
+        });
+
+        connect(m_configsList, &QListWidget::itemSelectionChanged, this, [this]() {
+            QListWidgetItem *item = m_configsList->currentItem();
+            if (item) {
+                m_configPath->setText(item->text());
+            }
+        });
+
+        connect(m_browseButton, &QPushButton::clicked, this, [this]() {
+            const QString path = QFileDialog::getOpenFileName(
+                    this, tr("Select TrustTunnel config"), QString(), tr("TOML files (*.toml);;All files (*)"));
+            if (!path.isEmpty()) {
+                const QString normalized = QFileInfo(path).absoluteFilePath();
+                m_configPath->setText(normalized);
+                addCurrentToStorage();
+                refreshStoredList();
+            }
+        });
+
+        connect(m_viewConfigButton, &QPushButton::clicked, this, [this]() {
+            const QString path = m_configPath->text().trimmed();
+            if (path.isEmpty()) {
+                QMessageBox::information(this, tr("Config"), tr("Select config file first."));
+                return;
+            }
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) {
+                QMessageBox::warning(this, tr("Config"), tr("Failed to open config file."));
+                return;
+            }
+            auto *dlg = new QDialog(this);
+            dlg->setWindowTitle(tr("Config Preview"));
+            dlg->resize(860, 560);
+            auto *v = new QVBoxLayout(dlg);
+            auto *tabs = new QTabWidget(dlg);
+            auto *summary = new QTextBrowser(dlg);
+            summary->setHtml(buildConfigSummaryHtml(path));
+            auto *validation = new QTextBrowser(dlg);
+            validation->setHtml(buildConfigValidationHtml(path));
+            auto *raw = new QTextEdit(dlg);
+            raw->setReadOnly(true);
+            raw->setPlainText(QString::fromUtf8(f.readAll()));
+            tabs->addTab(summary, tr("Overview"));
+            tabs->addTab(validation, tr("Validation"));
+            tabs->addTab(raw, tr("Raw"));
+            v->addWidget(tabs);
+            dlg->exec();
+            dlg->deleteLater();
+        });
+
+        connect(m_connectButton, &QPushButton::clicked, this, [this]() {
+            if (m_helper->state() != QProcess::NotRunning) {
+                log(tr("Helper already running"));
+                return;
+            }
+            if (m_configPath->text().isEmpty()) {
+                QMessageBox::warning(this, tr("Config Required"), tr("Select config file first."));
+                return;
+            }
+
+#ifndef _WIN32
+            if (::geteuid() != 0) {
+                const QString runCmd = QString("%1 --config %2 --loglevel %3 >> %4 2>&1 & echo $! > %5")
+                                               .arg(shellEscape(m_helperPath))
+                                               .arg(shellEscape(m_configPath->text()))
+                                               .arg(shellEscape(m_appSettings.log_level))
+                                               .arg(shellEscape(m_helperLogPath))
+                                               .arg(shellEscape(m_helperPidPath));
+                const QString cmd = QString("rm -f %1; /bin/sh -c %2")
+                                            .arg(shellEscape(m_helperLogPath))
+                                            .arg(shellEscape(runCmd));
+                QString errorText;
+                if (!runElevatedShell(cmd, &errorText)) {
+                    QMessageBox::critical(this, tr("Elevation Failed"),
+                            tr("Failed to start elevated helper.\n\n%1").arg(errorText));
+                    return;
+                }
+                m_stateLabel->setText(tr("Helper: Running (elevated)"));
+                log(tr("Elevated helper started"));
+                m_logPos = 0;
+                m_logPollTimer->start();
+                addCurrentToStorage();
+                statusBar()->showMessage(tr("VPN helper started"), 2500);
+                return;
+            }
+#endif
+
+            m_helper->setProgram(m_helperPath);
+            m_helper->setArguments({"--config", m_configPath->text(), "--loglevel", m_appSettings.log_level});
+            m_helper->start();
+            addCurrentToStorage();
+        });
+
+        connect(m_disconnectButton, &QPushButton::clicked, this, [this]() {
+            if (m_helper->state() != QProcess::NotRunning) {
+                m_helper->terminate();
+                if (!m_helper->waitForFinished(3000)) {
+                    m_helper->kill();
+                    m_helper->waitForFinished(1000);
+                }
+                statusBar()->showMessage(tr("VPN helper stopped"), 2500);
+                return;
+            }
+#ifndef _WIN32
+            const QString stopCmd =
+                    QString("if [ -f %1 ]; then kill $(cat %1) >/dev/null 2>&1 || true; rm -f %1; fi")
+                            .arg(shellEscape(m_helperPidPath));
+            QString errorText;
+            if (runElevatedShell(stopCmd, &errorText)) {
+                m_stateLabel->setText(tr("Helper: Stopped"));
+                log(tr("Elevated helper stop requested"));
+                statusBar()->showMessage(tr("VPN helper stopped"), 2500);
+            } else {
+                log(tr("Failed to stop elevated helper: %1").arg(errorText));
+            }
+#endif
+        });
+
+        connect(m_helper, &QProcess::started, this, [this]() {
+            m_stateLabel->setText(tr("Helper: Running"));
+            log(tr("Helper started"));
+            statusBar()->showMessage(tr("VPN helper started"), 2500);
+        });
+
+        connect(m_helper, &QProcess::readyReadStandardOutput, this, [this]() {
+            appendLogChunk(m_helper->readAllStandardOutput());
+        });
+
+        connect(m_helper, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
+            m_stateLabel->setText(tr("Helper: Error"));
+            log(tr("Helper process error: %1").arg(static_cast<int>(err)));
+        });
+
+        connect(m_helper, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+                [this](int code, QProcess::ExitStatus status) {
+                    m_stateLabel->setText(tr("Helper: Stopped"));
+                    log(tr("Helper finished (code=%1, status=%2)")
+                                .arg(code)
+                                .arg(status == QProcess::NormalExit ? tr("normal") : tr("crash")));
+                });
+
+        connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+            if (m_appSettings.theme_mode == "system") {
+                applyTheme();
+            }
+        });
+    }
+
+    void applyLanguage(const QString &lang) {
+        m_currentLang = lang;
+        const bool ru = (lang == "ru");
+        if (m_langEnAction) m_langEnAction->setChecked(!ru);
+        if (m_langRuAction) m_langRuAction->setChecked(ru);
+        if (m_appMenu) m_appMenu->setTitle(ru ? "Приложение" : "App");
+        if (m_settingsMenu) m_settingsMenu->setTitle(ru ? "Настройки" : "Settings");
+        if (m_viewMenu) m_viewMenu->setTitle(ru ? "Вид" : "View");
+        if (m_languageMenu) m_languageMenu->setTitle(ru ? "Язык" : "Language");
+        m_configsBox->setTitle(ru ? "Сохраненные конфиги" : "Saved Configs");
+        m_controlBox->setTitle(ru ? "Подключение" : "Connection");
+        m_logBox->setTitle(ru ? "Логи" : "Logs");
+
+        m_addConfigButton->setText(ru ? "Добавить" : "Add");
+        m_removeConfigButton->setText(ru ? "Удалить" : "Remove");
+        m_pingConfigButton->setText(ru ? "Пинг" : "Ping");
+        m_browseButton->setText(ru ? "Обзор..." : "Browse...");
+        m_viewConfigButton->setText(ru ? "Просмотр" : "View Config");
+        m_connectButton->setText(ru ? "Старт VPN" : "Start VPN");
+        m_disconnectButton->setText(ru ? "Стоп VPN" : "Stop VPN");
+        if (m_settingsAction) m_settingsAction->setText(ru ? "Настройки" : "Settings");
+        if (m_settingsMenuAction) m_settingsMenuAction->setText(ru ? "Открыть настройки" : "Open Settings");
+        if (m_quitAction) m_quitAction->setText(ru ? "Выход" : "Quit");
+        if (m_toggleLogsAction) {
+            m_toggleLogsAction->setText(m_toggleLogsAction->isChecked() ? (ru ? "Скрыть логи" : "Hide Logs")
+                                                                         : (ru ? "Показать логи" : "Show Logs"));
+        }
+
+        if (m_stateLabel->text().contains("Running", Qt::CaseInsensitive)
+                || m_stateLabel->text().contains("Работ", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "Помощник: работает" : "Helper: Running");
+        } else {
+            m_stateLabel->setText(ru ? "Помощник: остановлен" : "Helper: Stopped");
+        }
+
+        setWindowTitle(ru ? "TrustTunnel Qt Клиент" : "TrustTunnel Qt Client");
+    }
+
+    void appendLogChunk(const QByteArray &chunk) {
+        if (chunk.isEmpty()) {
+            return;
+        }
+        if (m_appSettings.save_logs && !m_appSettings.log_path.isEmpty()) {
+            QFile f(m_appSettings.log_path);
+            QFileInfo info(f);
+            QDir().mkpath(info.absolutePath());
+            if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
+                f.write(chunk);
+            }
+        }
+        m_logView->moveCursor(QTextCursor::End);
+        m_logView->insertPlainText(QString::fromLocal8Bit(chunk));
+        m_logView->ensureCursorVisible();
+    }
+
+    void log(const QString &line) {
+        appendLogChunk(line.toUtf8() + '\n');
+    }
+
+    void applyTheme() {
+        auto makeLightPalette = []() {
+            QPalette p;
+            p.setColor(QPalette::Window, QColor(244, 246, 251));
+            p.setColor(QPalette::WindowText, QColor(31, 42, 68));
+            p.setColor(QPalette::Base, QColor(255, 255, 255));
+            p.setColor(QPalette::AlternateBase, QColor(248, 250, 255));
+            p.setColor(QPalette::Text, QColor(31, 42, 68));
+            p.setColor(QPalette::Button, QColor(237, 242, 255));
+            p.setColor(QPalette::ButtonText, QColor(31, 42, 68));
+            p.setColor(QPalette::Highlight, QColor(28, 120, 255));
+            p.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+            return p;
+        };
+        auto makeDarkPalette = []() {
+            QPalette p;
+            p.setColor(QPalette::Window, QColor(24, 27, 34));
+            p.setColor(QPalette::WindowText, QColor(233, 238, 248));
+            p.setColor(QPalette::Base, QColor(32, 36, 45));
+            p.setColor(QPalette::AlternateBase, QColor(44, 49, 61));
+            p.setColor(QPalette::Text, QColor(233, 238, 248));
+            p.setColor(QPalette::Button, QColor(41, 48, 63));
+            p.setColor(QPalette::ButtonText, QColor(233, 238, 248));
+            p.setColor(QPalette::Highlight, QColor(74, 154, 255));
+            p.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+            return p;
+        };
+        const QString lightQss =
+                "QMainWindow{background:#f4f6fb;}"
+                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;font-weight:600;color:#1f2a44;}"
+                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
+                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
+                "QPushButton:hover{background:#e5ecff;}"
+                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
+                "QPushButton#connectButton:hover{background:#1465df;}"
+                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
+                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
+                "QMenuBar{background:#f4f6fb;}"
+                "QStatusBar{background:#f4f6fb;color:#415170;}";
+        const QString darkQss =
+                "QMainWindow{background:#181b22;}"
+                "QGroupBox{background:#222732;border:1px solid #333b4d;border-radius:12px;margin-top:12px;font-weight:600;color:#e9eef8;}"
+                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#20242d;border:1px solid #394257;border-radius:10px;padding:8px;color:#e9eef8;}"
+                "QPushButton{background:#2b3342;border:1px solid #42506a;border-radius:10px;padding:8px 12px;color:#e9eef8;}"
+                "QPushButton:hover{background:#354057;}"
+                "QPushButton#connectButton{background:#2b7cff;color:#ffffff;border:1px solid #2b7cff;font-weight:700;}"
+                "QPushButton#connectButton:hover{background:#2167da;}"
+                "QPushButton#disconnectButton{background:#2a303d;color:#d7e0f2;border:1px solid #44506a;font-weight:600;}"
+                "QLabel#stateLabel{background:#1f3a2b;color:#8ee0b1;border:1px solid #2f5f46;border-radius:10px;padding:8px;font-weight:700;}"
+                "QMenuBar{background:#181b22;color:#e9eef8;}"
+                "QStatusBar{background:#181b22;color:#9fb0d0;}";
+
+        bool dark = false;
+        if (m_appSettings.theme_mode == "dark") {
+            dark = true;
+        } else if (m_appSettings.theme_mode == "light") {
+            dark = false;
+        } else {
+            dark = (QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark);
+        }
+
+        qApp->setStyle("Fusion");
+        qApp->setPalette(dark ? makeDarkPalette() : makeLightPalette());
+        setStyleSheet(dark ? darkQss : lightQss);
+    }
+
+    void refreshStoredList() {
+        const QString current = m_configPath->text();
+        m_configsList->clear();
+        for (const QString &p : loadStoredConfigs()) {
+            m_configsList->addItem(p);
+        }
+        for (int i = 0; i < m_configsList->count(); ++i) {
+            if (m_configsList->item(i)->text() == current) {
+                m_configsList->setCurrentRow(i);
+                break;
+            }
+        }
+    }
+
+    void addCurrentToStorage() {
+        if (m_configPath->text().isEmpty()) {
+            return;
+        }
+        QStringList configs = loadStoredConfigs();
+        if (!configs.contains(m_configPath->text())) {
+            configs.append(m_configPath->text());
+            saveStoredConfigs(configs);
+            refreshStoredList();
+        }
+    }
+
+private:
+    bool m_forceExit = false;
+
+    QGroupBox *m_configsBox = nullptr;
+    QGroupBox *m_controlBox = nullptr;
+    QGroupBox *m_logBox = nullptr;
+
+    QListWidget *m_configsList = nullptr;
+    QLineEdit *m_configPath = nullptr;
+    QPushButton *m_addConfigButton = nullptr;
+    QPushButton *m_removeConfigButton = nullptr;
+    QPushButton *m_pingConfigButton = nullptr;
+    QPushButton *m_browseButton = nullptr;
+    QPushButton *m_viewConfigButton = nullptr;
+    QPushButton *m_connectButton = nullptr;
+    QPushButton *m_disconnectButton = nullptr;
+    QLabel *m_stateLabel = nullptr;
+    QTextEdit *m_logView = nullptr;
+
+    QSystemTrayIcon *m_tray = nullptr;
+    QMenu *m_appMenu = nullptr;
+    QMenu *m_settingsMenu = nullptr;
+    QMenu *m_viewMenu = nullptr;
+    QMenu *m_languageMenu = nullptr;
+    QAction *m_settingsAction = nullptr;
+    QAction *m_settingsMenuAction = nullptr;
+    QAction *m_quitAction = nullptr;
+    QAction *m_toggleLogsAction = nullptr;
+    QAction *m_langEnAction = nullptr;
+    QAction *m_langRuAction = nullptr;
+    QString m_currentLang = "en";
+
+    QProcess *m_helper = nullptr;
+    QTimer *m_logPollTimer = nullptr;
+    QString m_helperPath;
+    QString m_helperLogPath;
+    QString m_helperPidPath;
+    qint64 m_logPos = 0;
+    AppSettings m_appSettings;
+};
+
+QMainWindow *createMainWindow() {
+    auto *w = new MainWindow();
+    w->setWindowIcon(makeAppIcon());
+    return w;
+}

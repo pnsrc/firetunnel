@@ -1,0 +1,9 @@
+[settings]
+os=Macos
+compiler=apple-clang
+compiler.version=17
+compiler.cppstd=20
+compiler.libcxx=libc++
+[conf]
+tools.cmake.cmaketoolchain:generator=Unix Makefiles
+tools.build:compiler_executables={"c":"/Users/dontfffafk/Library/FlyEnv/env/apache/bin/cc","cpp":"/Users/dontfffafk/Library/FlyEnv/env/apache/bin/c++"}
