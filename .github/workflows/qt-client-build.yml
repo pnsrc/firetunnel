@@ -39,15 +39,25 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Clone TrustTunnel monorepo
+      - name: Checkout TrustTunnel monorepo (primary)
+        id: checkout_upstream_primary
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: TrustTunnel/TrustTunnel
+          path: upstream
+          fetch-depth: 1
+
+      - name: Checkout TrustTunnel monorepo (fallback)
+        if: steps.checkout_upstream_primary.outcome != 'success'
+        uses: actions/checkout@v4
+        with:
+          repository: trusttunnel/trusttunnel
+          path: upstream
+          fetch-depth: 1
+
+      - name: Inject trusttunnel-qt into upstream
         run: |
-          rm -rf upstream
-          for i in 1 2 3; do
-            git clone --depth 1 https://github.com/TrustTunnel/TrustTunnel.git upstream && break
-            echo "Clone attempt $i failed, retrying..."
-            sleep 3
-          done
-          test -d upstream/.git
           rm -rf upstream/trusttunnel-qt
           mkdir -p upstream/trusttunnel-qt
           find . -mindepth 1 -maxdepth 1 \
