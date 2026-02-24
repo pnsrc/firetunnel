@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 COMPONENTS Widgets Network REQUIRED)
+set(TRUSTTUNNEL_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "Path to TrustTunnelClient repository root")
 
 set(FIRETUNNEL_GIT_VERSION "unknown")
 find_package(Git QUIET)
@@ -65,39 +66,44 @@ if (TARGET vpnlibs_trusttunnel)
     target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network vpnlibs_trusttunnel)
     target_link_libraries(trusttunnel-qt-helper PRIVATE vpnlibs_trusttunnel)
     target_include_directories(trusttunnel-qt PRIVATE
-        ../trusttunnel/include
-        ../common/include
-        ../core/include
-        ../net/include
-        ../tcpip/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
+        ${TRUSTTUNNEL_REPO_ROOT}/common/include
+        ${TRUSTTUNNEL_REPO_ROOT}/core/include
+        ${TRUSTTUNNEL_REPO_ROOT}/net/include
+        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
     )
     target_include_directories(trusttunnel-qt-helper PRIVATE
-        ../trusttunnel/include
-        ../common/include
-        ../core/include
-        ../net/include
-        ../tcpip/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
+        ${TRUSTTUNNEL_REPO_ROOT}/common/include
+        ${TRUSTTUNNEL_REPO_ROOT}/core/include
+        ${TRUSTTUNNEL_REPO_ROOT}/net/include
+        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
     )
 else()
-    # Standalone fallback (limited): keeps local IDE iteration possible.
-    add_subdirectory(../trusttunnel-core trusttunnel-core-build)
+    if (NOT EXISTS "${TRUSTTUNNEL_REPO_ROOT}/trusttunnel-core/CMakeLists.txt")
+        message(FATAL_ERROR
+            "trusttunnel-core not found.\n"
+            "Set TRUSTTUNNEL_REPO_ROOT to the TrustTunnelClient root containing trusttunnel-core,\n"
+            "or build this client from inside the monorepo where vpnlibs_trusttunnel target is available.")
+    endif()
+    add_subdirectory(${TRUSTTUNNEL_REPO_ROOT}/trusttunnel-core trusttunnel-core-build)
     target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network trusttunnel_core)
     target_link_libraries(trusttunnel-qt-helper PRIVATE trusttunnel_core)
     target_include_directories(trusttunnel-qt PRIVATE
-        ../trusttunnel/include
-        ../trusttunnel/src
-        ../common/include
-        ../core/include
-        ../net/include
-        ../tcpip/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/src
+        ${TRUSTTUNNEL_REPO_ROOT}/common/include
+        ${TRUSTTUNNEL_REPO_ROOT}/core/include
+        ${TRUSTTUNNEL_REPO_ROOT}/net/include
+        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
     )
     target_include_directories(trusttunnel-qt-helper PRIVATE
-        ../trusttunnel/include
-        ../trusttunnel/src
-        ../common/include
-        ../core/include
-        ../net/include
-        ../tcpip/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
+        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/src
+        ${TRUSTTUNNEL_REPO_ROOT}/common/include
+        ${TRUSTTUNNEL_REPO_ROOT}/core/include
+        ${TRUSTTUNNEL_REPO_ROOT}/net/include
+        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
     )
 endif()
 
