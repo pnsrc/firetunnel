@@ -5,10 +5,14 @@
 #include <QActionGroup>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -19,18 +23,22 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QPalette>
 #include <QProcess>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QStyle>
 #include <QStyleHints>
+#include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTimer>
+#include <QUrl>
+#include <QUrlQuery>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -51,8 +59,9 @@ public:
         setupUi();
         setupLogic();
         applyTheme();
-        applyLanguage("en");
+        applyLanguage(m_appSettings.language == "ru" ? "ru" : "en");
         refreshStoredList();
+        processStartupArguments();
         if (m_configPath->text().trimmed().isEmpty() && m_configsList->count() > 0) {
             m_configsList->setCurrentRow(0);
             if (m_configsList->currentItem()) {
@@ -72,7 +81,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override {
-        if (m_tray && m_tray->isVisible()) {
+        if (!m_forceExit && m_tray && m_tray->isVisible()) {
             hide();
             statusBar()->showMessage(tr("Running in tray"), 3000);
             m_tray->showMessage(windowTitle(), tr("Application minimized to tray"), QSystemTrayIcon::Information, 1500);
@@ -83,6 +92,195 @@ protected:
     }
 
 private:
+    bool stopHelper() {
+        bool stoppedAny = false;
+
+        if (m_helper->state() != QProcess::NotRunning) {
+            m_helper->terminate();
+            if (!m_helper->waitForFinished(3000)) {
+                m_helper->kill();
+                m_helper->waitForFinished(1000);
+            }
+            stoppedAny = true;
+        }
+#ifndef _WIN32
+        const QString stopCmd = QString(
+                "pid=''; "
+                "if [ -f %1 ]; then pid=$(cat %1 2>/dev/null || true); fi; "
+                "if [ -n \"$pid\" ] && kill -0 \"$pid\" >/dev/null 2>&1; then "
+                "kill \"$pid\" >/dev/null 2>&1 || true; "
+                "for i in 1 2 3 4 5 6 7 8 9 10; do "
+                "kill -0 \"$pid\" >/dev/null 2>&1 || break; "
+                "sleep 0.2; "
+                "done; "
+                "if kill -0 \"$pid\" >/dev/null 2>&1; then "
+                "kill -9 \"$pid\" >/dev/null 2>&1 || true; "
+                "fi; "
+                "fi; "
+                "rm -f %1")
+                                        .arg(shellEscape(m_helperPidPath));
+        QString errorText;
+        if (runElevatedShell(stopCmd, &errorText)) {
+            stoppedAny = true;
+        } else if (!errorText.isEmpty()) {
+            log(tr("Failed to stop elevated helper: %1").arg(errorText));
+        }
+#endif
+        if (stoppedAny) {
+            m_stateLabel->setText(tr("Helper: Stopped"));
+            statusBar()->showMessage(tr("VPN helper stopped"), 2500);
+        }
+        return stoppedAny;
+    }
+
+    bool selectConfigPath(const QString &path) {
+        const QString normalized = QFileInfo(path).absoluteFilePath();
+        if (!QFileInfo::exists(normalized)) {
+            return false;
+        }
+        m_configPath->setText(normalized);
+        addCurrentToStorage();
+        refreshStoredList();
+        return true;
+    }
+
+    bool importConfigFromDeeplink(const QString &deeplink) {
+        const QUrl url = QUrl::fromUserInput(deeplink.trimmed());
+        if (!url.isValid()) {
+            log(tr("Invalid deeplink"));
+            return false;
+        }
+        const QString scheme = url.scheme().toLower();
+        if (scheme != "trusttunnel" && scheme != "firetunnel") {
+            log(tr("Unsupported deeplink scheme: %1").arg(url.scheme()));
+            return false;
+        }
+
+        const QUrlQuery query(url);
+        QString path = query.queryItemValue("path");
+        if (path.isEmpty()) {
+            path = query.queryItemValue("config");
+        }
+        if (!path.isEmpty()) {
+            if (selectConfigPath(path)) {
+                statusBar()->showMessage(tr("Config added from deeplink"), 2500);
+                return true;
+            }
+            log(tr("Deeplink config path not found: %1").arg(path));
+            return false;
+        }
+
+        const QString base64Toml = query.queryItemValue("b64");
+        if (!base64Toml.isEmpty()) {
+            const QByteArray decoded = QByteArray::fromBase64(base64Toml.toUtf8());
+            if (decoded.isEmpty()) {
+                log(tr("Deeplink b64 payload is empty or invalid"));
+                return false;
+            }
+            const QString defaultName = QString("imported-%1.toml").arg(QDateTime::currentSecsSinceEpoch());
+            const QString name = query.queryItemValue("name").trimmed().isEmpty()
+                    ? defaultName
+                    : query.queryItemValue("name").trimmed();
+            const QString base = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+            QDir().mkpath(base);
+            const QString target = QDir(base).filePath(name.endsWith(".toml") ? name : (name + ".toml"));
+            QFile f(target);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                log(tr("Failed to write imported config: %1").arg(target));
+                return false;
+            }
+            f.write(decoded);
+            f.close();
+            selectConfigPath(target);
+            statusBar()->showMessage(tr("Config imported from deeplink payload"), 2500);
+            return true;
+        }
+
+        log(tr("Deeplink must contain path/config or b64 payload"));
+        return false;
+    }
+
+    void processStartupArguments() {
+        const QStringList args = QCoreApplication::arguments();
+        for (int i = 1; i < args.size(); ++i) {
+            const QString arg = args.at(i).trimmed();
+            if (arg.isEmpty()) {
+                continue;
+            }
+            if (arg.startsWith("trusttunnel://", Qt::CaseInsensitive)
+                    || arg.startsWith("firetunnel://", Qt::CaseInsensitive)) {
+                importConfigFromDeeplink(arg);
+                continue;
+            }
+            if (arg.endsWith(".toml", Qt::CaseInsensitive)) {
+                selectConfigPath(arg);
+            }
+        }
+    }
+
+    void createConfigFromTemplate() {
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("Create Config"));
+        auto *layout = new QVBoxLayout(&dlg);
+        auto *form = new QFormLayout();
+        auto *hostEdit = new QLineEdit("server.example.com", &dlg);
+        auto *addrEdit = new QLineEdit("server.example.com:443", &dlg);
+        auto *userEdit = new QLineEdit("user", &dlg);
+        auto *passEdit = new QLineEdit("password", &dlg);
+        passEdit->setEchoMode(QLineEdit::Password);
+        form->addRow(tr("Host:"), hostEdit);
+        form->addRow(tr("Address host:port:"), addrEdit);
+        form->addRow(tr("Username:"), userEdit);
+        form->addRow(tr("Password:"), passEdit);
+        layout->addLayout(form);
+
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        layout->addWidget(buttons);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+
+        const QString targetPath = QFileDialog::getSaveFileName(
+                this,
+                tr("Save TrustTunnel config"),
+                QDir::homePath() + "/trusttunnel-config.toml",
+                tr("TOML files (*.toml);;All files (*)"));
+        if (targetPath.isEmpty()) {
+            return;
+        }
+
+        const QString toml = QString(
+                                     "loglevel = \"info\"\n"
+                                     "vpn_mode = \"tunnel\"\n"
+                                     "killswitch_enabled = true\n\n"
+                                     "[endpoint]\n"
+                                     "hostname = \"%1\"\n"
+                                     "addresses = [\"%2\"]\n"
+                                     "upstream_protocol = \"http2\"\n"
+                                     "upstream_fallback_protocol = \"http\"\n"
+                                     "username = \"%3\"\n"
+                                     "password = \"%4\"\n\n"
+                                     "[listener.tun]\n"
+                                     "name = \"\"\n"
+                                     "mtu_size = 1500\n"
+                                     "change_system_dns = true\n")
+                                     .arg(hostEdit->text().trimmed(),
+                                             addrEdit->text().trimmed(),
+                                             userEdit->text().trimmed(),
+                                             passEdit->text());
+        QFile f(targetPath);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QMessageBox::warning(this, tr("Config"), tr("Failed to save config file."));
+            return;
+        }
+        f.write(toml.toUtf8());
+        f.close();
+        selectConfigPath(targetPath);
+        statusBar()->showMessage(tr("Config created"), 2500);
+    }
+
     void setupUi() {
         setWindowTitle("TrustTunnel Qt Client");
         resize(980, 650);
@@ -90,6 +288,8 @@ private:
         m_appMenu = menuBar()->addMenu("App");
         auto *appMenu = m_appMenu;
         m_settingsAction = appMenu->addAction("Settings");
+        m_importDeeplinkAction = appMenu->addAction("Import Deeplink");
+        m_createConfigAction = appMenu->addAction("Create Config");
         appMenu->addSeparator();
         m_quitAction = appMenu->addAction("Quit");
 
@@ -233,10 +433,7 @@ private:
             });
             connect(exitAction, &QAction::triggered, this, [this]() {
                 m_forceExit = true;
-                if (m_helper->state() != QProcess::NotRunning) {
-                    m_helper->terminate();
-                    m_helper->waitForFinished(800);
-                }
+                stopHelper();
                 qApp->quit();
             });
             connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
@@ -273,8 +470,16 @@ private:
             applyLanguage(m_currentLang);
         });
 
-        connect(m_langEnAction, &QAction::triggered, this, [this]() { applyLanguage("en"); });
-        connect(m_langRuAction, &QAction::triggered, this, [this]() { applyLanguage("ru"); });
+        connect(m_langEnAction, &QAction::triggered, this, [this]() {
+            applyLanguage("en");
+            m_appSettings.language = "en";
+            saveAppSettings(m_appSettings);
+        });
+        connect(m_langRuAction, &QAction::triggered, this, [this]() {
+            applyLanguage("ru");
+            m_appSettings.language = "ru";
+            saveAppSettings(m_appSettings);
+        });
         connect(m_settingsAction, &QAction::triggered, this, [this]() {
             SettingsDialog dlg(m_currentLang, m_appSettings, this);
             if (dlg.exec() == QDialog::Accepted) {
@@ -309,7 +514,21 @@ private:
                 statusBar()->showMessage(tr("Settings saved"), 2000);
             }
         });
-        connect(m_quitAction, &QAction::triggered, this, [this]() { close(); });
+        connect(m_quitAction, &QAction::triggered, this, [this]() {
+            m_forceExit = true;
+            close();
+        });
+        connect(m_importDeeplinkAction, &QAction::triggered, this, [this]() {
+            bool ok = false;
+            const QString link = QInputDialog::getText(
+                    this, tr("Import Deeplink"), tr("Paste deeplink URL:"), QLineEdit::Normal, QString(), &ok);
+            if (ok && !link.trimmed().isEmpty()) {
+                importConfigFromDeeplink(link);
+            }
+        });
+        connect(m_createConfigAction, &QAction::triggered, this, [this]() {
+            createConfigFromTemplate();
+        });
 
         connect(m_addConfigButton, &QPushButton::clicked, this, [this]() {
             const QString path = QFileDialog::getOpenFileName(
@@ -444,28 +663,9 @@ private:
         });
 
         connect(m_disconnectButton, &QPushButton::clicked, this, [this]() {
-            if (m_helper->state() != QProcess::NotRunning) {
-                m_helper->terminate();
-                if (!m_helper->waitForFinished(3000)) {
-                    m_helper->kill();
-                    m_helper->waitForFinished(1000);
-                }
-                statusBar()->showMessage(tr("VPN helper stopped"), 2500);
-                return;
+            if (!stopHelper()) {
+                log(tr("Helper is not running"));
             }
-#ifndef _WIN32
-            const QString stopCmd =
-                    QString("if [ -f %1 ]; then kill $(cat %1) >/dev/null 2>&1 || true; rm -f %1; fi")
-                            .arg(shellEscape(m_helperPidPath));
-            QString errorText;
-            if (runElevatedShell(stopCmd, &errorText)) {
-                m_stateLabel->setText(tr("Helper: Stopped"));
-                log(tr("Elevated helper stop requested"));
-                statusBar()->showMessage(tr("VPN helper stopped"), 2500);
-            } else {
-                log(tr("Failed to stop elevated helper: %1").arg(errorText));
-            }
-#endif
         });
 
         connect(m_helper, &QProcess::started, this, [this]() {
@@ -519,6 +719,8 @@ private:
         m_connectButton->setText(ru ? "Старт VPN" : "Start VPN");
         m_disconnectButton->setText(ru ? "Стоп VPN" : "Stop VPN");
         if (m_settingsAction) m_settingsAction->setText(ru ? "Настройки" : "Settings");
+        if (m_importDeeplinkAction) m_importDeeplinkAction->setText(ru ? "Импорт Deeplink" : "Import Deeplink");
+        if (m_createConfigAction) m_createConfigAction->setText(ru ? "Создать конфиг" : "Create Config");
         if (m_settingsMenuAction) m_settingsMenuAction->setText(ru ? "Открыть настройки" : "Open Settings");
         if (m_quitAction) m_quitAction->setText(ru ? "Выход" : "Quit");
         if (m_toggleLogsAction) {
@@ -676,6 +878,8 @@ private:
     QMenu *m_viewMenu = nullptr;
     QMenu *m_languageMenu = nullptr;
     QAction *m_settingsAction = nullptr;
+    QAction *m_importDeeplinkAction = nullptr;
+    QAction *m_createConfigAction = nullptr;
     QAction *m_settingsMenuAction = nullptr;
     QAction *m_quitAction = nullptr;
     QAction *m_toggleLogsAction = nullptr;

@@ -47,3 +47,17 @@ make -C trusttunnel-qt build QT_DISABLE_HTTP3=ON
 2. Нажмите `Start VPN`.
 3. Для остановки — `Stop VPN`.
 4. В `Settings` можно включить автоподключение при старте приложения.
+
+## Добавление своего конфига
+
+- Через меню `App -> Create Config` можно сгенерировать новый TOML по шаблону.
+- Через меню `App -> Import Deeplink` можно вставить deeplink:
+  - `trusttunnel://import?path=/absolute/path/to/config.toml`
+  - `trusttunnel://import?config=/absolute/path/to/config.toml`
+  - `trusttunnel://import?b64=<base64_toml>&name=my-config.toml`
+- Также можно передать deeplink или путь к `.toml` при запуске приложения:
+
+```sh
+./build/trusttunnel-qt/trusttunnel-qt "trusttunnel://import?path=/Users/me/vpn.toml"
+./build/trusttunnel-qt/trusttunnel-qt /Users/me/vpn.toml
+```

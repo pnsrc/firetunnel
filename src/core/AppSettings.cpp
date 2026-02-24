@@ -9,6 +9,7 @@ AppSettings loadAppSettings() {
     out.log_level = s.value("logs/level", "info").toString();
     out.log_path = s.value("logs/path", "/tmp/trusttunnel-qt-helper.log").toString();
     out.theme_mode = s.value("ui/theme_mode", "system").toString();
+    out.language = s.value("ui/language", "en").toString();
     out.auto_connect_on_start = s.value("vpn/auto_connect_on_start", false).toBool();
     if (out.log_path.isEmpty()) {
         out.log_path = "/tmp/trusttunnel-qt-helper.log";
@@ -22,5 +23,6 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("logs/level", cfg.log_level);
     s.setValue("logs/path", cfg.log_path);
     s.setValue("ui/theme_mode", cfg.theme_mode);
+    s.setValue("ui/language", cfg.language);
     s.setValue("vpn/auto_connect_on_start", cfg.auto_connect_on_start);
 }

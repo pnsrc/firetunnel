@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(trusttunnel-qt VERSION 0.1.0 LANGUAGES CXX)
+project(trusttunnel-qt VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -41,7 +41,7 @@ add_executable(trusttunnel-qt MACOSX_BUNDLE
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
-    FIRETUNNEL_VERSION="${PROJECT_VERSION}"
+    FIRETUNNEL_VERSION="0.3b"
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 
