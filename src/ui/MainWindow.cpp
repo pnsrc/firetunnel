@@ -41,6 +41,7 @@
 #include <QUrlQuery>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QtGlobal>
 
 #include "AppSettings.h"
 #include "AppUiUtils.h"
@@ -691,11 +692,19 @@ private:
                                 .arg(status == QProcess::NormalExit ? tr("normal") : tr("crash")));
                 });
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
         connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
             if (m_appSettings.theme_mode == "system") {
                 applyTheme();
             }
         });
+#else
+        connect(qApp, &QGuiApplication::paletteChanged, this, [this](const QPalette &) {
+            if (m_appSettings.theme_mode == "system") {
+                applyTheme();
+            }
+        });
+#endif
     }
 
     void applyLanguage(const QString &lang) {
@@ -819,7 +828,12 @@ private:
         } else if (m_appSettings.theme_mode == "light") {
             dark = false;
         } else {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
             dark = (QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark);
+#else
+            const QColor base = qApp->palette().color(QPalette::Window);
+            dark = (base.lightness() < 128);
+#endif
         }
 
         qApp->setStyle("Fusion");
