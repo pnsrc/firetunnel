@@ -9,6 +9,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -90,6 +91,15 @@ protected:
             return;
         }
         QMainWindow::closeEvent(event);
+    }
+
+    bool eventFilter(QObject *obj, QEvent *event) override {
+#if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
+        if (obj == qApp && event->type() == QEvent::ApplicationPaletteChange && m_appSettings.theme_mode == "system") {
+            applyTheme();
+        }
+#endif
+        return QMainWindow::eventFilter(obj, event);
     }
 
 private:
@@ -699,11 +709,7 @@ private:
             }
         });
 #else
-        connect(qApp, &QGuiApplication::paletteChanged, this, [this](const QPalette &) {
-            if (m_appSettings.theme_mode == "system") {
-                applyTheme();
-            }
-        });
+        qApp->installEventFilter(this);
 #endif
     }
 
