@@ -8,6 +8,7 @@
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/config.h"
+#include "vpn/vpn.h" // for ag::iovec on Windows
 
 class QtTrustTunnelClient : public QObject {
     Q_OBJECT
