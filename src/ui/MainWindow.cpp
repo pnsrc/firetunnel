@@ -808,6 +808,11 @@ private:
         });
 
         connect(m_connectButton, &QPushButton::clicked, this, [this]() {
+            const auto s = m_vpnClient->state();
+            if (s != QtTrustTunnelClient::State::Disconnected && s != QtTrustTunnelClient::State::Error) {
+                log(tr("Connect ignored: state=%1").arg(static_cast<int>(s)));
+                return;
+            }
             if (m_configPath->text().isEmpty()) {
                 QMessageBox::warning(this, tr("Config Required"), tr("Select config file first."));
                 return;
@@ -842,6 +847,11 @@ private:
         });
 
         connect(m_disconnectButton, &QPushButton::clicked, this, [this]() {
+            const auto s = m_vpnClient->state();
+            if (s == QtTrustTunnelClient::State::Disconnected || s == QtTrustTunnelClient::State::Error) {
+                log(tr("Disconnect ignored: state=%1").arg(static_cast<int>(s)));
+                return;
+            }
             m_vpnClient->disconnectVpn();
             log(tr("Disconnect requested"));
         });
