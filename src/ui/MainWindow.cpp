@@ -26,6 +26,7 @@
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QPalette>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QStyle>
