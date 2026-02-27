@@ -5,6 +5,17 @@
 #include "vpn/vpn.h" // for ag::iovec on Windows
 
 #ifdef _WIN32
+// Windows SDK doesn't define POSIX iovec; define a minimal version for packet aggregation.
+#ifndef IOVEC_DEFINED_QT
+#define IOVEC_DEFINED_QT
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+#endif
+#endif
+
+#ifdef _WIN32
 #include <windows.h>
 
 static bool is_process_elevated() {
