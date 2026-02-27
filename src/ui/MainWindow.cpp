@@ -65,6 +65,15 @@
 #include "SettingsDialog.h"
 #include "qt_trusttunnel_client.h"
 
+static ag::LogLevel parseLogLevel(const QString &level) {
+    const QString l = level.toLower();
+    if (l == "error") return ag::LOG_LEVEL_ERROR;
+    if (l == "warn" || l == "warning") return ag::LOG_LEVEL_WARN;
+    if (l == "debug") return ag::LOG_LEVEL_DEBUG;
+    if (l == "trace") return ag::LOG_LEVEL_TRACE;
+    return ag::LOG_LEVEL_INFO;
+}
+
 class MainWindow : public QMainWindow {
 public:
     MainWindow() {
