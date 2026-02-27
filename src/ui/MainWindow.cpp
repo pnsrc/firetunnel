@@ -717,6 +717,10 @@ private:
                 QMessageBox::warning(this, tr("Config Required"), tr("Select config file first."));
                 return;
             }
+            // reset counters on a fresh session
+            m_bytesRx = 0;
+            m_bytesTx = 0;
+            statusBar()->showMessage(tr("Preparing routing rules..."), 1500);
 #ifndef _WIN32
             if (!m_isRoot) {
                 log(tr("Restarting app with sudo for VPN privileges"));
@@ -727,13 +731,17 @@ private:
             std::vector<std::string> includeRoutes;
             std::vector<std::string> excludeRoutes;
             if (!prepareRoutingRules(includeRoutes, excludeRoutes)) {
+                statusBar()->showMessage(tr("Routing update failed"), 3000);
                 return;
             }
+            statusBar()->showMessage(tr("Routing rules ready"), 1500);
             if (!m_vpnClient->loadConfigFromFile(m_configPath->text())) {
+                statusBar()->showMessage(tr("Config load failed"), 3000);
                 return;
             }
             m_vpnClient->setRoutingRules(includeRoutes, excludeRoutes);
             log(tr("Connecting VPN..."));
+            statusBar()->showMessage(tr("Connecting..."), 1500);
             m_vpnClient->connectVpn();
             addCurrentToStorage();
         });
@@ -749,33 +757,39 @@ private:
                 m_stateLabel->setText(tr("VPN: Connecting"));
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
+                m_statsTimer.start(1500);
                 break;
             case QtTrustTunnelClient::State::Connected:
                 m_stateLabel->setText(tr("VPN: Connected"));
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
+                m_statsTimer.start(1500);
                 statusBar()->showMessage(tr("VPN connected"), 2000);
                 break;
             case QtTrustTunnelClient::State::Reconnecting:
                 m_stateLabel->setText(tr("VPN: Reconnecting"));
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
+                m_statsTimer.start(1500);
                 break;
             case QtTrustTunnelClient::State::Disconnecting:
                 m_stateLabel->setText(tr("VPN: Disconnecting"));
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(false);
+                m_statsTimer.stop();
                 break;
             case QtTrustTunnelClient::State::Error:
                 m_stateLabel->setText(tr("VPN: Error"));
                 m_connectButton->setEnabled(true);
                 m_disconnectButton->setEnabled(false);
+                m_statsTimer.stop();
                 break;
             case QtTrustTunnelClient::State::Disconnected:
             default:
                 m_stateLabel->setText(tr("VPN: Disconnected"));
                 m_connectButton->setEnabled(true);
                 m_disconnectButton->setEnabled(false);
+                m_statsTimer.stop();
                 break;
             }
         });
@@ -798,12 +812,17 @@ private:
             const quint64 b = bytes.toULongLong(&ok);
             if (ok) {
                 m_bytesRx += b;
-                statusBar()->showMessage(tr("Rx: %1 KB  Tx: %2 KB")
-                                                 .arg(QString::number(m_bytesRx / 1024))
-                                                 .arg(QString::number(m_bytesTx / 1024)),
-                        1500);
             }
             log(tr("Output chunk: %1 bytes").arg(bytes));
+        });
+
+        m_statsTimer.setSingleShot(false);
+        m_statsTimer.setInterval(1500);
+        connect(&m_statsTimer, &QTimer::timeout, this, [this]() {
+            statusBar()->showMessage(tr("Traffic Rx: %1 KB  Tx: %2 KB")
+                                             .arg(QString::number(m_bytesRx / 1024))
+                                             .arg(QString::number(m_bytesTx / 1024)),
+                    1400);
         });
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -1031,6 +1050,7 @@ private:
     bool m_isRoot = false;
     quint64 m_bytesRx = 0;
     quint64 m_bytesTx = 0;
+    QTimer m_statsTimer;
     QtTrustTunnelClient *m_vpnClient = nullptr;
     AppSettings m_appSettings;
 };
