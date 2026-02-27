@@ -2,6 +2,7 @@
 #include <QMetaObject>
 #include <algorithm>
 #include <toml++/toml.h>
+#include "vpn/vpn.h" // for ag::iovec on Windows
 
 #ifdef _WIN32
 #include <windows.h>
