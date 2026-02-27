@@ -846,7 +846,7 @@ private:
             log(tr("Disconnect requested"));
         });
 
-        connect(m_vpnClient, &QtTrustTunnelClient::stateChanged, this, [this](QtTrustTunnelClient::State s) {
+        auto updateStateUi = [this](QtTrustTunnelClient::State s) {
             switch (s) {
             case QtTrustTunnelClient::State::Connecting:
                 m_stateLabel->setText(tr("VPN: Connecting"));
@@ -887,7 +887,11 @@ private:
                 m_statsTimer.stop();
                 break;
             }
-        });
+        };
+
+        connect(m_vpnClient, &QtTrustTunnelClient::stateChanged, this, updateStateUi);
+        // Sync UI with the actual current state at startup
+        updateStateUi(m_vpnClient->state());
 
         connect(m_vpnClient, &QtTrustTunnelClient::vpnConnected, this, [this]() {
             log(tr("VPN connected"));
