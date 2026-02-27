@@ -1,6 +1,7 @@
 #include "qt_trusttunnel_client.h"
 #include <QMetaObject>
 #include <algorithm>
+#include <chrono>
 #include <toml++/toml.h>
 
 #ifdef _WIN32
@@ -148,6 +149,8 @@ void QtTrustTunnelClient::doConnectAttempt() {
             emit vpnError(QString("set_system_dns() failed: %1").arg(qErr));
             return;
         }
+
+        m_lastConnectAttempt = std::chrono::steady_clock::now();
 
         if (auto err = m_client->connect(ag::TrustTunnelClient::AutoSetup{})) {
             const std::string errText = err->str();
