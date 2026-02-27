@@ -466,6 +466,24 @@ private:
         m_configsCombo = new QComboBox(m_configsBox);
         m_configsCombo->setMinimumHeight(44);
         configRow->addWidget(m_configsCombo, 1);
+
+        // Hidden legacy list to keep existing logic safe
+        m_configsList = new QListWidget(m_configsBox);
+        m_configsList->setVisible(false);
+
+        auto *configBtns = new QHBoxLayout();
+        configBtns->setSpacing(6);
+        m_addConfigButton = new QPushButton(m_configsBox);
+        m_removeConfigButton = new QPushButton(m_configsBox);
+        m_pingConfigButton = new QPushButton(m_configsBox);
+        m_addConfigButton->setFixedSize(40, 40);
+        m_removeConfigButton->setFixedSize(40, 40);
+        m_pingConfigButton->setFixedSize(40, 40);
+        configBtns->addWidget(m_addConfigButton);
+        configBtns->addWidget(m_removeConfigButton);
+        configBtns->addWidget(m_pingConfigButton);
+        configRow->addLayout(configBtns);
+
         configsLayout->addLayout(configRow);
 
         m_controlBox = new QGroupBox(root);
@@ -523,25 +541,28 @@ private:
         topRow->addWidget(m_configsBox, 2);
         topRow->addWidget(m_controlBox, 3);
 
-        // Minimal footer: compact log view toggle only
+        // Minimal footer removed, but keep a hidden log box to avoid null accesses
+        m_logBox = new QGroupBox(root);
+        m_logBox->setVisible(false);
+
         layout->addLayout(topRow);
 
         setCentralWidget(root);
         setStyleSheet(
-                "QMainWindow{background:#0b1220;}"
-                "QGroupBox{background:#0f182b;border:1px solid #1f2d45;border-radius:14px;margin-top:12px;"
-                "font-weight:600;color:#dfe7ff;}"
+                "QMainWindow{background:#0c0f1a;}"
+                "QGroupBox{background:#111829;border:1px solid #1f2b45;border-radius:16px;margin-top:10px;"
+                "font-weight:600;color:#e6ecff;}"
                 "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#0d1526;border:1px solid #1f2d45;border-radius:12px;padding:10px;color:#dfe7ff;}"
-                "QPushButton{background:#12203a;border:1px solid #1f2d45;border-radius:12px;padding:10px 14px;color:#dfe7ff;font-weight:600;}"
-                "QPushButton:hover{background:#162847;}"
-                "QPushButton#connectButton{background:#00a3ff;color:#ffffff;border:1px solid #0093e6;font-weight:700;}"
-                "QPushButton#connectButton:hover{background:#0089d6;}"
-                "QPushButton#disconnectButton{background:#111c2f;color:#9fb4dd;border:1px solid #1f2d45;font-weight:600;}"
-                "QLabel#stateLabel{background:#102035;color:#81e6ff;border:1px solid #1f3d5c;border-radius:12px;padding:10px;font-weight:800;font-size:15px;}"
-                "QFrame#statusFrame{background:#0d1526;border:1px solid #1f2d45;border-radius:12px;}"
-                "QMenuBar{background:#0b1220;color:#dfe7ff;}"
-                "QStatusBar{background:#0b1220;color:#8aa5d6;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#0f1728;border:1px solid #1f2b45;border-radius:14px;padding:10px;color:#e6ecff;}"
+                "QPushButton{background:#152138;border:1px solid #1f2b45;border-radius:14px;padding:12px 16px;color:#e6ecff;font-weight:600;}"
+                "QPushButton:hover{background:#1a2845;}"
+                "QPushButton#connectButton{background:#00c2ff;color:#0b1220;border:1px solid #00b3f0;font-weight:800;}"
+                "QPushButton#connectButton:hover{background:#00a9df;}"
+                "QPushButton#disconnectButton{background:#111c2f;color:#9fb4dd;border:1px solid #1f2b45;font-weight:600;}"
+                "QLabel#stateLabel{background:#0f233d;color:#8fe8ff;border:1px solid #1f3d5c;border-radius:14px;padding:12px;font-weight:800;font-size:16px;}"
+                "QFrame#statusFrame{background:#0f1728;border:1px solid #1f2b45;border-radius:14px;}"
+                "QMenuBar{background:#0c0f1a;color:#e6ecff;}"
+                "QStatusBar{background:#0c0f1a;color:#8aa5d6;}"
         );
 
         statusBar()->showMessage("Ready");
