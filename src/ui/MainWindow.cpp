@@ -47,6 +47,8 @@
 #include <QWidget>
 #include <QtGlobal>
 
+#include "common/logger.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -70,6 +72,9 @@ public:
         m_isRoot = (::geteuid() == 0);
 #endif
         m_appSettings = loadAppSettings();
+
+        enforceFirstRunElevation();
+
         setupUi();
         setupLogic();
         applyTheme();
@@ -520,6 +525,18 @@ private:
         m_vpnClient = new QtTrustTunnelClient(this);
         m_vpnClient->setLogLevel(m_appSettings.log_level);
 
+        // Forward core logs to UI with current log level threshold
+        const ag::LogLevel uiLogLevel = parseLogLevel(m_appSettings.log_level);
+        ag::Logger::set_callback([this, uiLogLevel](ag::LogLevel level, std::string_view msg) {
+            if (level > uiLogLevel) {
+                return;
+            }
+            const QString line = QString::fromUtf8(msg.data(), static_cast<int>(msg.size()));
+            QMetaObject::invokeMethod(this, [this, line]() {
+                log(QStringLiteral("[core] ") + line);
+            }, Qt::QueuedConnection);
+        });
+
         m_addConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
         m_removeConfigButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
         m_pingConfigButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
@@ -904,6 +921,28 @@ private:
 #endif
                 ;
         setWindowTitle(elevated ? baseTitle + full : baseTitle);
+    }
+
+    void enforceFirstRunElevation() {
+#ifdef _WIN32
+        if (m_appSettings.first_run_checked) {
+            return;
+        }
+        if (!isProcessElevated()) {
+            const auto res = QMessageBox::warning(this,
+                    tr("Administrator privileges required"),
+                    tr("For proper VPN setup we need to run as Administrator on first launch. Restart now as admin?"),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (res == QMessageBox::Yes) {
+                m_appSettings.first_run_checked = true;
+                saveAppSettings(m_appSettings);
+                relaunchElevated();
+            }
+        } else {
+            m_appSettings.first_run_checked = true;
+            saveAppSettings(m_appSettings);
+        }
+#endif
     }
 
     void appendLogChunk(const QByteArray &chunk) {
