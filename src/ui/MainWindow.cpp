@@ -649,6 +649,8 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_appSettings.show_logs_panel = dlg.showLogsPanel();
+                m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
                 m_appSettings.routing_enabled = dlg.routingEnabled();
                 m_appSettings.routing_mode = dlg.routingMode();
                 if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
@@ -656,6 +658,8 @@ private:
                 m_vpnClient->setLogLevel(m_appSettings.log_level);
                 saveAppSettings(m_appSettings);
                 applyTheme();
+                if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+                if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
                 statusBar()->showMessage(tr("Settings saved"), 2000);
             }
         });
@@ -670,6 +674,8 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_appSettings.show_logs_panel = dlg.showLogsPanel();
+                m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
                 m_appSettings.routing_enabled = dlg.routingEnabled();
                 m_appSettings.routing_mode = dlg.routingMode();
                 if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
@@ -677,6 +683,8 @@ private:
                 m_vpnClient->setLogLevel(m_appSettings.log_level);
                 saveAppSettings(m_appSettings);
                 applyTheme();
+                if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+                if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
                 statusBar()->showMessage(tr("Settings saved"), 2000);
             }
         });
@@ -1142,6 +1150,7 @@ private:
     QAction *m_langEnAction = nullptr;
     QAction *m_langRuAction = nullptr;
     QString m_currentLang = "en";
+    QToolButton *m_hideLogsBtn = nullptr;
 
     bool m_isRoot = false;
     quint64 m_bytesRx = 0;
