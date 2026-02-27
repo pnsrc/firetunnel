@@ -45,12 +45,14 @@
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QtGlobal>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
+
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "AppSettings.h"
@@ -276,6 +278,20 @@ private:
         return true;
 #endif
     }
+
+#ifdef _WIN32
+    bool isProcessElevated() const {
+        HANDLE token = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+            return false;
+        }
+        TOKEN_ELEVATION elevation{};
+        DWORD size = 0;
+        const BOOL ok = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
+        CloseHandle(token);
+        return ok && elevation.TokenIsElevated;
+    }
+#endif
 
     void processStartupArguments() {
         const QStringList args = QCoreApplication::arguments();
@@ -838,7 +854,7 @@ private:
         const QString full = ru ? " (Полный режим)" : " (Full mode)";
         const bool elevated = m_isRoot
 #ifdef _WIN32
-                || is_process_elevated()
+                || isProcessElevated()
 #endif
                 ;
         setWindowTitle(elevated ? baseTitle + full : baseTitle);
