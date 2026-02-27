@@ -15,7 +15,6 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
-#include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -29,7 +28,6 @@
 #include <QPalette>
 #include <QProgressDialog>
 #include <QPushButton>
-#include <QPointer>
 #include <QStatusBar>
 #include <QStyle>
 #include <QStyleHints>
@@ -39,7 +37,6 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
-#include <QComboBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -420,7 +417,7 @@ private:
 
     void setupUi() {
         setWindowTitle("FireTunnel");
-        resize(1040, 700);
+        resize(980, 650);
         setWindowIcon(makeAppIcon());
         m_appMenu = menuBar()->addMenu("App");
         auto *appMenu = m_appMenu;
@@ -450,50 +447,32 @@ private:
 
         auto *root = new QWidget(this);
         auto *layout = new QVBoxLayout(root);
-        layout->setContentsMargins(18, 18, 18, 18);
-        layout->setSpacing(14);
+        layout->setContentsMargins(16, 16, 16, 16);
+        layout->setSpacing(12);
 
         auto *topRow = new QHBoxLayout();
-        topRow->setSpacing(14);
+        topRow->setSpacing(12);
 
         m_configsBox = new QGroupBox(root);
         m_configsBox->setObjectName("configsBox");
         auto *configsLayout = new QVBoxLayout(m_configsBox);
-
-        // Minimal top card: dropdown + quick actions
-        auto *configRow = new QHBoxLayout();
-        configRow->setSpacing(10);
-        m_configsCombo = new QComboBox(m_configsBox);
-        m_configsCombo->setMinimumHeight(44);
-        configRow->addWidget(m_configsCombo, 1);
-
-        // Hidden legacy list to keep existing logic safe
         m_configsList = new QListWidget(m_configsBox);
-        m_configsList->setVisible(false);
-
-        auto *configBtns = new QHBoxLayout();
-        configBtns->setSpacing(6);
+        auto *configsButtons = new QHBoxLayout();
         m_addConfigButton = new QPushButton(m_configsBox);
         m_removeConfigButton = new QPushButton(m_configsBox);
         m_pingConfigButton = new QPushButton(m_configsBox);
-        m_addConfigButton->setFixedSize(40, 40);
-        m_removeConfigButton->setFixedSize(40, 40);
-        m_pingConfigButton->setFixedSize(40, 40);
-        configBtns->addWidget(m_addConfigButton);
-        configBtns->addWidget(m_removeConfigButton);
-        configBtns->addWidget(m_pingConfigButton);
-        configRow->addLayout(configBtns);
-
-        configsLayout->addLayout(configRow);
+        configsButtons->addWidget(m_addConfigButton);
+        configsButtons->addWidget(m_removeConfigButton);
+        configsButtons->addWidget(m_pingConfigButton);
+        configsLayout->addWidget(m_configsList);
+        configsLayout->addLayout(configsButtons);
 
         m_controlBox = new QGroupBox(root);
         m_controlBox->setObjectName("controlBox");
         auto *controlLayout = new QVBoxLayout(m_controlBox);
-        controlLayout->setSpacing(12);
-
+        controlLayout->setSpacing(10);
         auto *pathRow = new QHBoxLayout();
         m_configPath = new QLineEdit(m_controlBox);
-        m_configPath->setReadOnly(true);
         m_browseButton = new QPushButton(m_controlBox);
         m_viewConfigButton = new QPushButton(m_controlBox);
         m_connectButton = new QPushButton(m_controlBox);
@@ -505,64 +484,49 @@ private:
         m_disconnectButton->setEnabled(false);
         m_connectButton->setObjectName("connectButton");
         m_disconnectButton->setObjectName("disconnectButton");
-        m_connectButton->setMinimumHeight(54);
-        m_disconnectButton->setMinimumHeight(48);
+        m_connectButton->setMinimumHeight(42);
+        m_disconnectButton->setMinimumHeight(42);
 
-        m_configPath->setPlaceholderText("Choose config to get started...");
+        m_configPath->setPlaceholderText("Path to TrustTunnel TOML config");
         pathRow->addWidget(m_configPath);
         pathRow->addWidget(m_browseButton);
         pathRow->addWidget(m_viewConfigButton);
         auto *actionRow = new QHBoxLayout();
-        actionRow->setSpacing(12);
-
-        // Primary CTA column
-        auto *ctaCol = new QVBoxLayout();
-        ctaCol->setSpacing(12);
-        m_connectButton->setMinimumWidth(220);
-        m_disconnectButton->setMinimumWidth(220);
-        ctaCol->addWidget(m_connectButton);
-        ctaCol->addWidget(m_disconnectButton);
-
-        // Status pane with big label
-        auto *statusCard = new QVBoxLayout();
-        auto *statusFrame = new QFrame(m_controlBox);
-        statusFrame->setObjectName("statusFrame");
-        auto *statusLayout = new QVBoxLayout(statusFrame);
-        statusLayout->setContentsMargins(12, 14, 12, 14);
-        statusLayout->addWidget(m_stateLabel);
-        statusCard->addWidget(statusFrame);
-
-        actionRow->addLayout(ctaCol);
-        actionRow->addLayout(statusCard, 1);
-
+        actionRow->setSpacing(10);
+        actionRow->addWidget(m_connectButton);
+        actionRow->addWidget(m_disconnectButton);
         controlLayout->addLayout(pathRow);
         controlLayout->addLayout(actionRow);
+        controlLayout->addWidget(m_stateLabel);
 
         topRow->addWidget(m_configsBox, 2);
         topRow->addWidget(m_controlBox, 3);
 
-        // Minimal footer removed, but keep a hidden log box to avoid null accesses
         m_logBox = new QGroupBox(root);
-        m_logBox->setVisible(false);
+        m_logBox->setObjectName("logBox");
+        auto *logLayout = new QVBoxLayout(m_logBox);
+        m_logView = new QTextEdit(m_logBox);
+        m_logView->setReadOnly(true);
+        logLayout->addWidget(m_logView);
 
         layout->addLayout(topRow);
+        layout->addWidget(m_logBox, 1);
 
         setCentralWidget(root);
         setStyleSheet(
-                "QMainWindow{background:#0c0f1a;}"
-                "QGroupBox{background:#111829;border:1px solid #1f2b45;border-radius:16px;margin-top:10px;"
-                "font-weight:600;color:#e6ecff;}"
+                "QMainWindow{background:#f4f6fb;}"
+                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;"
+                "font-weight:600;color:#1f2a44;}"
                 "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#0f1728;border:1px solid #1f2b45;border-radius:14px;padding:10px;color:#e6ecff;}"
-                "QPushButton{background:#152138;border:1px solid #1f2b45;border-radius:14px;padding:12px 16px;color:#e6ecff;font-weight:600;}"
-                "QPushButton:hover{background:#1a2845;}"
-                "QPushButton#connectButton{background:#00c2ff;color:#0b1220;border:1px solid #00b3f0;font-weight:800;}"
-                "QPushButton#connectButton:hover{background:#00a9df;}"
-                "QPushButton#disconnectButton{background:#111c2f;color:#9fb4dd;border:1px solid #1f2b45;font-weight:600;}"
-                "QLabel#stateLabel{background:#0f233d;color:#8fe8ff;border:1px solid #1f3d5c;border-radius:14px;padding:12px;font-weight:800;font-size:16px;}"
-                "QFrame#statusFrame{background:#0f1728;border:1px solid #1f2b45;border-radius:14px;}"
-                "QMenuBar{background:#0c0f1a;color:#e6ecff;}"
-                "QStatusBar{background:#0c0f1a;color:#8aa5d6;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
+                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
+                "QPushButton:hover{background:#e5ecff;}"
+                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
+                "QPushButton#connectButton:hover{background:#1465df;}"
+                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
+                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
+                "QMenuBar{background:#f4f6fb;}"
+                "QStatusBar{background:#f4f6fb;color:#415170;}"
         );
 
         statusBar()->showMessage("Ready");
@@ -572,19 +536,14 @@ private:
 
         // Forward core logs to UI with current log level threshold
         const ag::LogLevel uiLogLevel = parseLogLevel(m_appSettings.log_level);
-        QPointer<MainWindow> self(this);
-        ag::Logger::set_callback([self, uiLogLevel](ag::LogLevel level, std::string_view msg) {
-            if (!self) return;
-            if (level > uiLogLevel) return;
+        ag::Logger::set_callback([this, uiLogLevel](ag::LogLevel level, std::string_view msg) {
+            if (level > uiLogLevel) {
+                return;
+            }
             const QString line = QString::fromUtf8(msg.data(), static_cast<int>(msg.size()));
-            QMetaObject::invokeMethod(self, [self, line]() {
-                if (!self) return;
-                self->log(QStringLiteral("[core] ") + line);
+            QMetaObject::invokeMethod(this, [this, line]() {
+                log(QStringLiteral("[core] ") + line);
             }, Qt::QueuedConnection);
-        });
-
-        connect(qApp, &QCoreApplication::aboutToQuit, this, []() {
-            ag::Logger::set_callback(ag::Logger::LOG_TO_STDERR);
         });
 
         m_addConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
@@ -815,10 +774,10 @@ private:
                 return;
             }
             statusBar()->showMessage(tr("Routing rules ready"), 1500);
-        if (!m_vpnClient->loadConfigFromFile(m_configPath->text())) {
-            statusBar()->showMessage(tr("Config load failed"), 3000);
-            return;
-        }
+            if (!m_vpnClient->loadConfigFromFile(m_configPath->text())) {
+                statusBar()->showMessage(tr("Config load failed"), 3000);
+                return;
+            }
             m_vpnClient->setRoutingRules(includeRoutes, excludeRoutes);
             log(tr("Connecting VPN..."));
             statusBar()->showMessage(tr("Connecting..."), 1500);
@@ -1092,15 +1051,14 @@ private:
     void refreshStoredList() {
         const QString current = m_configPath->text();
         m_configsList->clear();
-        m_configsList->clear();
-        m_configsCombo->clear();
         for (const QString &p : loadStoredConfigs()) {
             m_configsList->addItem(p);
-            m_configsCombo->addItem(p);
         }
-        int idx = m_configsCombo->findText(current);
-        if (idx >= 0) {
-            m_configsCombo->setCurrentIndex(idx);
+        for (int i = 0; i < m_configsList->count(); ++i) {
+            if (m_configsList->item(i)->text() == current) {
+                m_configsList->setCurrentRow(i);
+                break;
+            }
         }
     }
 
@@ -1123,8 +1081,7 @@ private:
     QGroupBox *m_controlBox = nullptr;
     QGroupBox *m_logBox = nullptr;
 
-    QListWidget *m_configsList = nullptr; // legacy list (hidden)
-    QComboBox *m_configsCombo = nullptr;
+    QListWidget *m_configsList = nullptr;
     QLineEdit *m_configPath = nullptr;
     QPushButton *m_addConfigButton = nullptr;
     QPushButton *m_removeConfigButton = nullptr;
