@@ -9,6 +9,9 @@
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
+class QListWidget;
+class QStackedWidget;
+class QListWidgetItem;
 
 class SettingsDialog : public QDialog {
 public:
@@ -47,4 +50,7 @@ private:
     QRadioButton *m_routingBypassRadio = nullptr;
     QLineEdit *m_routingUrlEdit = nullptr;
     QLineEdit *m_routingCacheEdit = nullptr;
+
+    QListWidget *m_navList = nullptr;
+    QStackedWidget *m_stack = nullptr;
 };

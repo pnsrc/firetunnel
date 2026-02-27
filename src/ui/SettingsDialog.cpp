@@ -5,11 +5,13 @@
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
-#include <QTabWidget>
+#include <QStackedWidget>
 #include <QTextBrowser>
 #include <QVBoxLayout>
 
@@ -30,7 +32,22 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     resize(680, 460);
 
     auto *layout = new QVBoxLayout(this);
-    auto *tabs = new QTabWidget(this);
+
+    // Navigation: left list with icons, right stacked pages
+    auto *bodyLayout = new QHBoxLayout();
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    m_navList = new QListWidget(this);
+    m_navList->setViewMode(QListView::ListMode);
+    m_navList->setMovement(QListView::Static);
+    m_navList->setFixedWidth(180);
+    m_navList->setSpacing(4);
+    m_stack = new QStackedWidget(this);
+
+    auto addNavItem = [this](const QString &title, QWidget *page, const QIcon &icon) {
+        auto *item = new QListWidgetItem(icon, title, m_navList);
+        m_stack->addWidget(page);
+        m_navList->addItem(item);
+    };
 
     auto *aboutPage = new QWidget(this);
     auto *aboutLayout = new QFormLayout(aboutPage);
@@ -74,7 +91,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     aboutLayout->addRow(ru ? "Хранилище конфигов:" : "Config storage:", new QLabel(storagePath(), aboutPage));
     aboutLayout->addRow(ru ? "О FireTunnel:" : "About FireTunnel:", ftLabel);
     aboutLayout->addRow(ru ? "О TrustTunnel:" : "About TrustTunnel:", ttLabel);
-    tabs->addTab(aboutPage, ru ? "О программе" : "About");
+    addNavItem(ru ? "О программе" : "About", aboutPage, QIcon::fromTheme("help-about"));
 
     auto *licensePage = new QWidget(this);
     auto *licenseLayout = new QVBoxLayout(licensePage);
@@ -85,7 +102,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     licenseView->setLineWrapMode(QTextEdit::NoWrap);
     licenseView->setPlainText(loadLicenseText());
     licenseLayout->addWidget(licenseView);
-    tabs->addTab(licensePage, ru ? "Лицензии" : "Licenses");
+    addNavItem(ru ? "Лицензии" : "Licenses", licensePage, QIcon::fromTheme("text-x-generic"));
 
     // Logging tab
     auto *logsPage = new QWidget(this);
@@ -110,7 +127,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     logsLayout->addRow(ru ? "Файл логов:" : "Log file:", pathRow);
     logsLayout->addRow(m_showLogsPanelCheck);
     logsLayout->addRow(m_showTrafficCheck);
-    tabs->addTab(logsPage, ru ? "Логирование" : "Logging");
+    addNavItem(ru ? "Логирование" : "Logging", logsPage, QIcon::fromTheme("document-open"));
 
     // Notifications tab
     auto *notifyPage = new QWidget(this);
@@ -121,7 +138,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_notifyErrorsOnlyCheck->setChecked(settings.notify_only_errors);
     notifyLayout->addRow(m_notifyOnStateCheck);
     notifyLayout->addRow(m_notifyErrorsOnlyCheck);
-    tabs->addTab(notifyPage, ru ? "Уведомления" : "Notifications");
+    addNavItem(ru ? "Уведомления" : "Notifications", notifyPage, QIcon::fromTheme("preferences-desktop-notification"));
 
     auto *appearancePage = new QWidget(this);
     auto *appearanceLayout = new QFormLayout(appearancePage);
@@ -135,7 +152,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_autoConnectCheck = new QCheckBox(ru ? "Автоподключение при запуске" : "Auto-connect on app start", appearancePage);
     m_autoConnectCheck->setChecked(settings.auto_connect_on_start);
     appearanceLayout->addRow(QString(), m_autoConnectCheck);
-    tabs->addTab(appearancePage, ru ? "Внешний вид" : "Appearance");
+    addNavItem(ru ? "Внешний вид" : "Appearance", appearancePage, QIcon::fromTheme("preferences-desktop-theme"));
 
     // Security tab
     auto *securityPage = new QWidget(this);
@@ -146,7 +163,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_strictCertCheck->setChecked(settings.strict_certificate_check);
     securityLayout->addRow(m_killswitchCheck);
     securityLayout->addRow(m_strictCertCheck);
-    tabs->addTab(securityPage, ru ? "Безопасность" : "Security");
+    addNavItem(ru ? "Безопасность" : "Security", securityPage, QIcon::fromTheme("security-high"));
 
     auto *routingPage = new QWidget(this);
     auto *routingLayout = new QFormLayout(routingPage);
@@ -172,7 +189,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     routingLayout->addRow(ru ? "Режим:" : "Mode:", modeRow);
     routingLayout->addRow(ru ? "URL списка подсетей:" : "Subnets URL:", m_routingUrlEdit);
     routingLayout->addRow(ru ? "Файл кеша:" : "Cache file:", cacheRow);
-    tabs->addTab(routingPage, ru ? "Маршрутизация" : "Routing");
+    addNavItem(ru ? "Маршрутизация" : "Routing", routingPage, QIcon::fromTheme("network-workgroup"));
 
     connect(browseCacheBtn, &QPushButton::clicked, this, [this, ru]() {
         const QString path = QFileDialog::getSaveFileName(
@@ -196,7 +213,14 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
         }
     });
 
-    layout->addWidget(tabs);
+    bodyLayout->addWidget(m_navList);
+    bodyLayout->addWidget(m_stack, 1);
+    layout->addLayout(bodyLayout);
+
+    connect(m_navList, &QListWidget::currentRowChanged, m_stack, &QStackedWidget::setCurrentIndex);
+    if (m_navList->count() > 0) {
+        m_navList->setCurrentRow(0);
+    }
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
