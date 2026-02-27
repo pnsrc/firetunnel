@@ -5,6 +5,18 @@
 #include <memory>
 #include <functional>
 #include <optional>
+
+#ifdef _WIN32
+// Windows SDK doesn't define POSIX iovec; define a minimal version before vpn.h uses it.
+#ifndef IOVEC_DEFINED_QT
+#define IOVEC_DEFINED_QT
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+#endif
+#endif
+
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/config.h"
