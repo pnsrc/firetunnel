@@ -30,6 +30,7 @@ AppSettings loadAppSettings() {
     out.notify_only_errors = s.value("ui/notify_only_errors", false).toBool();
     out.killswitch_enabled = s.value("vpn/killswitch_enabled", false).toBool();
     out.strict_certificate_check = s.value("vpn/strict_certificate_check", true).toBool();
+    out.first_run_checked = s.value("ui/first_run_checked", false).toBool();
     out.routing_enabled = s.value("routing/enabled", false).toBool();
     out.routing_mode = s.value("routing/mode", "tunnel_ru").toString();
     out.routing_cache_path = s.value("routing/cache_path", defaultRoutingCachePath()).toString();
@@ -55,6 +56,7 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("ui/notify_only_errors", cfg.notify_only_errors);
     s.setValue("vpn/killswitch_enabled", cfg.killswitch_enabled);
     s.setValue("vpn/strict_certificate_check", cfg.strict_certificate_check);
+    s.setValue("ui/first_run_checked", cfg.first_run_checked);
     s.setValue("routing/enabled", cfg.routing_enabled);
     s.setValue("routing/mode", cfg.routing_mode);
     s.setValue("routing/cache_path", cfg.routing_cache_path);

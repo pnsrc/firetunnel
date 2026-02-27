@@ -15,6 +15,7 @@ struct AppSettings {
     bool notify_only_errors = false;
     bool killswitch_enabled = false;
     bool strict_certificate_check = true;
+    bool first_run_checked = false;
     bool routing_enabled = false;
     QString routing_mode = "tunnel_ru"; // tunnel_ru | bypass_ru
     QString routing_cache_path = "";
