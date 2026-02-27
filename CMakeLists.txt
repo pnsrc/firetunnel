@@ -22,6 +22,11 @@ if (GIT_FOUND)
     )
 endif()
 
+set(APP_ICON_RC)
+if (WIN32)
+    set(APP_ICON_RC win/appicon.rc)
+endif ()
+
 add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     main.cpp
     src/ui/MainWindow.cpp
@@ -39,6 +44,7 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     src/vpn/qt_trusttunnel_client.cpp
     include/vpn/qt_trusttunnel_client.h
     assets/app.qrc
+    ${APP_ICON_RC}
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
@@ -84,7 +90,14 @@ endif()
 set_target_properties(trusttunnel-qt PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "TrustTunnel Qt"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.trusttunnel.qtclient"
+    MACOSX_BUNDLE_ICON_FILE "logo.icns"
 )
+
+if (APPLE)
+    # Place macOS icon into the bundle Resources dir
+    set_source_files_properties(assets/logo.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    target_sources(trusttunnel-qt PRIVATE assets/logo.icns)
+endif()
 
 # Bundle assets
 add_custom_command(TARGET trusttunnel-qt POST_BUILD
