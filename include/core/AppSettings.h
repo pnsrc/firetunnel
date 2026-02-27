@@ -5,10 +5,14 @@
 struct AppSettings {
     bool save_logs = true;
     QString log_level = "info";
-    QString log_path = "/tmp/trusttunnel-qt-helper.log";
+    QString log_path = "/tmp/trusttunnel-qt.log";
     QString theme_mode = "system";
     QString language = "en";
     bool auto_connect_on_start = false;
+    bool routing_enabled = false;
+    QString routing_mode = "tunnel_ru"; // tunnel_ru | bypass_ru
+    QString routing_cache_path;
+    QString routing_source_url = "https://antifilter.download/list/subnet.lst";
 };
 
 AppSettings loadAppSettings();

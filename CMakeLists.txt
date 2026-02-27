@@ -45,17 +45,7 @@ target_compile_definitions(trusttunnel-qt PRIVATE
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 
-add_executable(trusttunnel-qt-helper
-    src/vpn/helper_main.cpp
-)
-
 target_include_directories(trusttunnel-qt PRIVATE
-    include
-    include/core
-    include/ui
-    include/vpn
-)
-target_include_directories(trusttunnel-qt-helper PRIVATE
     include
     include/core
     include/ui
@@ -64,15 +54,7 @@ target_include_directories(trusttunnel-qt-helper PRIVATE
 
 if (TARGET vpnlibs_trusttunnel)
     target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network vpnlibs_trusttunnel)
-    target_link_libraries(trusttunnel-qt-helper PRIVATE vpnlibs_trusttunnel)
     target_include_directories(trusttunnel-qt PRIVATE
-        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
-        ${TRUSTTUNNEL_REPO_ROOT}/common/include
-        ${TRUSTTUNNEL_REPO_ROOT}/core/include
-        ${TRUSTTUNNEL_REPO_ROOT}/net/include
-        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
-    )
-    target_include_directories(trusttunnel-qt-helper PRIVATE
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
         ${TRUSTTUNNEL_REPO_ROOT}/common/include
         ${TRUSTTUNNEL_REPO_ROOT}/core/include
@@ -88,16 +70,7 @@ else()
     endif()
     add_subdirectory(${TRUSTTUNNEL_REPO_ROOT}/trusttunnel-core trusttunnel-core-build)
     target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network trusttunnel_core)
-    target_link_libraries(trusttunnel-qt-helper PRIVATE trusttunnel_core)
     target_include_directories(trusttunnel-qt PRIVATE
-        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
-        ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/src
-        ${TRUSTTUNNEL_REPO_ROOT}/common/include
-        ${TRUSTTUNNEL_REPO_ROOT}/core/include
-        ${TRUSTTUNNEL_REPO_ROOT}/net/include
-        ${TRUSTTUNNEL_REPO_ROOT}/tcpip/include
-    )
-    target_include_directories(trusttunnel-qt-helper PRIVATE
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/src
         ${TRUSTTUNNEL_REPO_ROOT}/common/include
@@ -112,8 +85,9 @@ set_target_properties(trusttunnel-qt PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.trusttunnel.qtclient"
 )
 
+# Bundle assets
 add_custom_command(TARGET trusttunnel-qt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:trusttunnel-qt-helper>
-        $<TARGET_FILE_DIR:trusttunnel-qt>/trusttunnel-qt-helper
+        ${CMAKE_CURRENT_LIST_DIR}/assets/logo.png
+        $<TARGET_FILE_DIR:trusttunnel-qt>/assets/logo.png
 )

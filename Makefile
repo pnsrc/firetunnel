@@ -26,7 +26,7 @@ configure: check_tools
 
 .PHONY: build
 build: configure
-	cmake --build $(BUILD_DIR) --target trusttunnel-qt trusttunnel-qt-helper -j$(JOBS)
+	cmake --build $(BUILD_DIR) --target trusttunnel-qt -j$(JOBS)
 
 .PHONY: run
 run: build

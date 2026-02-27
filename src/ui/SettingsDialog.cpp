@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QTabWidget>
 #include <QTextBrowser>
 #include <QVBoxLayout>
@@ -69,7 +70,6 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     aboutLayout->addRow(ru ? "Git ревизия:" : "Git revision:", new QLabel(QString::fromLatin1(FIRETUNNEL_GIT_VERSION), aboutPage));
     aboutLayout->addRow(ru ? "Версия ядра TrustTunnel:" : "TrustTunnel core version:", new QLabel(QString::fromLatin1(TRUSTTUNNEL_VERSION), aboutPage));
     aboutLayout->addRow(ru ? "Сборка:" : "Build:", new QLabel(buildStamp, aboutPage));
-    aboutLayout->addRow(ru ? "Помощник:" : "Helper:", new QLabel("trusttunnel-qt-helper", aboutPage));
     aboutLayout->addRow("Qt:", new QLabel(QString::fromLatin1(qVersion()), aboutPage));
     aboutLayout->addRow(ru ? "Хранилище конфигов:" : "Config storage:", new QLabel(storagePath(), aboutPage));
     aboutLayout->addRow(ru ? "О FireTunnel:" : "About FireTunnel:", ftLabel);
@@ -115,11 +115,48 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     appearanceLayout->addRow(QString(), m_autoConnectCheck);
     tabs->addTab(appearancePage, ru ? "Внешний вид" : "Appearance");
 
+    auto *routingPage = new QWidget(this);
+    auto *routingLayout = new QFormLayout(routingPage);
+    m_routingEnableCheck = new QCheckBox(ru ? "Включить маршрутизацию" : "Enable routing", routingPage);
+    m_routingEnableCheck->setChecked(settings.routing_enabled);
+    m_routingTunnelRadio = new QRadioButton(ru ? "Туннелировать РФ" : "Tunnel RU", routingPage);
+    m_routingBypassRadio = new QRadioButton(ru ? "Обходить РФ" : "Bypass RU", routingPage);
+    if (settings.routing_mode == "bypass_ru") {
+        m_routingBypassRadio->setChecked(true);
+    } else {
+        m_routingTunnelRadio->setChecked(true);
+    }
+    auto *modeRow = new QHBoxLayout();
+    modeRow->addWidget(m_routingTunnelRadio);
+    modeRow->addWidget(m_routingBypassRadio);
+    m_routingUrlEdit = new QLineEdit(settings.routing_source_url, routingPage);
+    m_routingCacheEdit = new QLineEdit(settings.routing_cache_path, routingPage);
+    auto *browseCacheBtn = new QPushButton(ru ? "Обзор..." : "Browse...", routingPage);
+    auto *cacheRow = new QHBoxLayout();
+    cacheRow->addWidget(m_routingCacheEdit);
+    cacheRow->addWidget(browseCacheBtn);
+    routingLayout->addRow(m_routingEnableCheck);
+    routingLayout->addRow(ru ? "Режим:" : "Mode:", modeRow);
+    routingLayout->addRow(ru ? "URL списка подсетей:" : "Subnets URL:", m_routingUrlEdit);
+    routingLayout->addRow(ru ? "Файл кеша:" : "Cache file:", cacheRow);
+    tabs->addTab(routingPage, ru ? "Маршрутизация" : "Routing");
+
+    connect(browseCacheBtn, &QPushButton::clicked, this, [this, ru]() {
+        const QString path = QFileDialog::getSaveFileName(
+                this,
+                ru ? "Путь кеша подсетей" : "Cache file path",
+                m_routingCacheEdit->text(),
+                ru ? "Text files (*.lst *.txt);;All files (*)" : "Text files (*.lst *.txt);;All files (*)");
+        if (!path.isEmpty()) {
+            m_routingCacheEdit->setText(path);
+        }
+    });
+
     connect(pickPathBtn, &QPushButton::clicked, this, [this, ru]() {
         const QString path = QFileDialog::getSaveFileName(
                 this,
                 ru ? "Путь файла логов" : "Log file path",
-                m_logPathEdit->text().isEmpty() ? "/tmp/trusttunnel-qt-helper.log" : m_logPathEdit->text(),
+                m_logPathEdit->text().isEmpty() ? "/tmp/trusttunnel-qt.log" : m_logPathEdit->text(),
                 ru ? "Log files (*.log);;All files (*)" : "Log files (*.log);;All files (*)");
         if (!path.isEmpty()) {
             m_logPathEdit->setText(path);
@@ -139,3 +176,10 @@ QString SettingsDialog::logLevel() const { return m_logLevelCombo ? m_logLevelCo
 QString SettingsDialog::logPath() const { return m_logPathEdit ? m_logPathEdit->text().trimmed() : QString(); }
 QString SettingsDialog::themeMode() const { return m_themeModeCombo ? m_themeModeCombo->currentData().toString() : "system"; }
 bool SettingsDialog::autoConnectOnStart() const { return m_autoConnectCheck && m_autoConnectCheck->isChecked(); }
+bool SettingsDialog::routingEnabled() const { return m_routingEnableCheck && m_routingEnableCheck->isChecked(); }
+QString SettingsDialog::routingMode() const {
+    if (m_routingBypassRadio && m_routingBypassRadio->isChecked()) return "bypass_ru";
+    return "tunnel_ru";
+}
+QString SettingsDialog::routingSourceUrl() const { return m_routingUrlEdit ? m_routingUrlEdit->text().trimmed() : QString(); }
+QString SettingsDialog::routingCachePath() const { return m_routingCacheEdit ? m_routingCacheEdit->text().trimmed() : QString(); }

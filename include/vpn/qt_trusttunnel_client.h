@@ -34,12 +34,17 @@ public:
     Q_INVOKABLE void disconnectVpn();
     Q_INVOKABLE bool isConnected() const;
     Q_INVOKABLE State state() const;
+    void setLogLevel(const QString &level);
+    void setRoutingRules(const std::vector<std::string> &includeRoutes,
+            const std::vector<std::string> &excludeRoutes);
 
 signals:
     void stateChanged(QtTrustTunnelClient::State state);
     void vpnConnected();
     void vpnDisconnected();
     void vpnError(const QString &msg);
+    void connectionInfo(const QString &msg);
+    void clientOutput(const QString &bytes); // bytes in chunk
 
 private:
     ag::VpnCallbacks makeCallbacks();
@@ -51,10 +56,13 @@ private:
     std::unique_ptr<ag::TrustTunnelClient> m_client;
     std::unique_ptr<ag::AutoNetworkMonitor> m_networkMonitor;
     std::optional<ag::TrustTunnelConfig> m_config;
+    std::vector<std::string> m_extraIncludedRoutes;
+    std::vector<std::string> m_extraExcludedRoutes;
     QTimer m_reconnectTimer;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;
     bool m_stopRequested = false;
     int m_reconnectDelayMs = 1000;
     int m_reconnectMaxMs = 30000;
+    ag::LogLevel m_logLevel = ag::LOG_LEVEL_INFO;
 };

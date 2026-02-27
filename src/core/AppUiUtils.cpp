@@ -6,6 +6,9 @@
 #include <QPen>
 #include <QPixmap>
 #include <QProcess>
+#include <QStandardPaths>
+#include <QFile>
+#include <QApplication>
 
 QString shellEscape(QString s) {
     s.replace("'", "'\"'\"'");
@@ -48,24 +51,31 @@ bool runElevatedShell(const QString &command, QString *errorText) {
 }
 
 QIcon makeAppIcon() {
-    QPixmap pm(256, 256);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing, true);
-
-    QLinearGradient bg(0, 0, 256, 256);
-    bg.setColorAt(0.0, QColor(26, 117, 255));
-    bg.setColorAt(1.0, QColor(0, 200, 170));
-    p.setPen(Qt::NoPen);
-    p.setBrush(bg);
-    p.drawRoundedRect(8, 8, 240, 240, 56, 56);
-
-    p.setPen(QPen(QColor(255, 255, 255), 18, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawLine(78, 128, 178, 128);
-    p.drawLine(92, 92, 78, 128);
-    p.drawLine(92, 164, 78, 128);
-    p.drawLine(164, 92, 178, 128);
-    p.drawLine(164, 164, 178, 128);
-    p.end();
+    QString assetPath = QCoreApplication::applicationDirPath() + "/assets/logo.png";
+    if (!QFile::exists(assetPath)) {
+        // Fallback to shared assets location if launched from build tree
+        const QString alt = QStandardPaths::locate(QStandardPaths::AppDataLocation, "assets/logo.png");
+        if (!alt.isEmpty()) assetPath = alt;
+    }
+    QPixmap pm;
+    if (!pm.load(assetPath)) {
+        pm = QPixmap(256, 256);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QLinearGradient bg(0, 0, 256, 256);
+        bg.setColorAt(0.0, QColor(26, 117, 255));
+        bg.setColorAt(1.0, QColor(0, 200, 170));
+        p.setPen(Qt::NoPen);
+        p.setBrush(bg);
+        p.drawRoundedRect(8, 8, 240, 240, 56, 56);
+        p.setPen(QPen(QColor(255, 255, 255), 18, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawLine(78, 128, 178, 128);
+        p.drawLine(92, 92, 78, 128);
+        p.drawLine(92, 164, 78, 128);
+        p.drawLine(164, 92, 178, 128);
+        p.drawLine(164, 164, 178, 128);
+        p.end();
+    }
     return QIcon(pm);
 }

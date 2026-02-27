@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QDialog>
+#include <QWidget>
+#include <QRadioButton>
 
 #include "AppSettings.h"
 
@@ -17,6 +19,10 @@ public:
     QString logPath() const;
     QString themeMode() const;
     bool autoConnectOnStart() const;
+    bool routingEnabled() const;
+    QString routingMode() const;
+    QString routingSourceUrl() const;
+    QString routingCachePath() const;
 
 private:
     QCheckBox *m_saveLogsCheck = nullptr;
@@ -24,4 +30,9 @@ private:
     QComboBox *m_themeModeCombo = nullptr;
     QLineEdit *m_logPathEdit = nullptr;
     QCheckBox *m_autoConnectCheck = nullptr;
+    QCheckBox *m_routingEnableCheck = nullptr;
+    QRadioButton *m_routingTunnelRadio = nullptr;
+    QRadioButton *m_routingBypassRadio = nullptr;
+    QLineEdit *m_routingUrlEdit = nullptr;
+    QLineEdit *m_routingCacheEdit = nullptr;
 };

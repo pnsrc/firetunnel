@@ -26,7 +26,6 @@
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QPalette>
-#include <QProcess>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QStyle>
@@ -37,26 +36,32 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QtGlobal>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include "AppSettings.h"
 #include "AppUiUtils.h"
 #include "ConfigInspector.h"
 #include "ConfigStore.h"
 #include "SettingsDialog.h"
-
-#ifndef _WIN32
-#include <unistd.h>
-#endif
+#include "qt_trusttunnel_client.h"
 
 class MainWindow : public QMainWindow {
 public:
     MainWindow() {
+#ifndef _WIN32
+        m_isRoot = (::geteuid() == 0);
+#endif
         m_appSettings = loadAppSettings();
         setupUi();
         setupLogic();
@@ -103,47 +108,6 @@ protected:
     }
 
 private:
-    bool stopHelper() {
-        bool stoppedAny = false;
-
-        if (m_helper->state() != QProcess::NotRunning) {
-            m_helper->terminate();
-            if (!m_helper->waitForFinished(3000)) {
-                m_helper->kill();
-                m_helper->waitForFinished(1000);
-            }
-            stoppedAny = true;
-        }
-#ifndef _WIN32
-        const QString stopCmd = QString(
-                "pid=''; "
-                "if [ -f %1 ]; then pid=$(cat %1 2>/dev/null || true); fi; "
-                "if [ -n \"$pid\" ] && kill -0 \"$pid\" >/dev/null 2>&1; then "
-                "kill \"$pid\" >/dev/null 2>&1 || true; "
-                "for i in 1 2 3 4 5 6 7 8 9 10; do "
-                "kill -0 \"$pid\" >/dev/null 2>&1 || break; "
-                "sleep 0.2; "
-                "done; "
-                "if kill -0 \"$pid\" >/dev/null 2>&1; then "
-                "kill -9 \"$pid\" >/dev/null 2>&1 || true; "
-                "fi; "
-                "fi; "
-                "rm -f %1")
-                                        .arg(shellEscape(m_helperPidPath));
-        QString errorText;
-        if (runElevatedShell(stopCmd, &errorText)) {
-            stoppedAny = true;
-        } else if (!errorText.isEmpty()) {
-            log(tr("Failed to stop elevated helper: %1").arg(errorText));
-        }
-#endif
-        if (stoppedAny) {
-            m_stateLabel->setText(tr("Helper: Stopped"));
-            statusBar()->showMessage(tr("VPN helper stopped"), 2500);
-        }
-        return stoppedAny;
-    }
-
     bool selectConfigPath(const QString &path) {
         const QString normalized = QFileInfo(path).absoluteFilePath();
         if (!QFileInfo::exists(normalized)) {
@@ -209,6 +173,88 @@ private:
 
         log(tr("Deeplink must contain path/config or b64 payload"));
         return false;
+    }
+
+    bool downloadRoutingList(const QString &url, const QString &targetPath) {
+        QNetworkAccessManager mgr;
+        QNetworkRequest req(url);
+        QEventLoop loop;
+        QNetworkReply *reply = mgr.get(req);
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        if (reply->error() != QNetworkReply::NoError) {
+            log(tr("Routing download failed: %1").arg(reply->errorString()));
+            reply->deleteLater();
+            return false;
+        }
+        QByteArray data = reply->readAll();
+        reply->deleteLater();
+        QFileInfo info(targetPath);
+        QDir().mkpath(info.absolutePath());
+        QFile f(targetPath);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            log(tr("Cannot write routing cache: %1").arg(targetPath));
+            return false;
+        }
+        f.write(data);
+        return true;
+    }
+
+    bool prepareRoutingRules(std::vector<std::string> &includeOut, std::vector<std::string> &excludeOut) {
+        if (!m_appSettings.routing_enabled) {
+            return true;
+        }
+        const QString cache = m_appSettings.routing_cache_path;
+        const QString url = m_appSettings.routing_source_url;
+        QFileInfo fi(cache);
+        if (!fi.exists() || fi.size() == 0) {
+            log(tr("Routing cache missing, downloading..."));
+            if (!downloadRoutingList(url, cache)) {
+                QMessageBox::warning(this, tr("Routing"),
+                        tr("Failed to download routing list.\nCheck connection and try again."));
+                return false;
+            }
+            log(tr("Routing list cached to %1").arg(cache));
+        }
+        QFile f(cache);
+        if (!f.open(QIODevice::ReadOnly)) {
+            log(tr("Failed to open routing cache: %1").arg(cache));
+            return false;
+        }
+        includeOut.clear();
+        excludeOut.clear();
+        while (!f.atEnd()) {
+            const QByteArray line = f.readLine();
+            QString s = QString::fromUtf8(line).trimmed();
+            if (s.isEmpty() || s.startsWith('#')) continue;
+            if (m_appSettings.routing_mode == "bypass_ru") {
+                excludeOut.emplace_back(s.toStdString());
+            } else {
+                includeOut.emplace_back(s.toStdString());
+            }
+        }
+        const int count = static_cast<int>(includeOut.size() + excludeOut.size());
+        log(tr("Routing rules loaded: %1 entries").arg(count));
+        return true;
+    }
+
+    bool relaunchElevated() {
+#ifndef _WIN32
+        QString errorText;
+        const QString exe = QCoreApplication::applicationFilePath();
+        const QString cmd = QString("exec %1 >/tmp/trusttunnel-qt.relaunch.log 2>&1 &").arg(shellEscape(exe));
+        if (!runElevatedShell(cmd, &errorText)) {
+            QMessageBox::critical(this, tr("Elevation Failed"),
+                    tr("Failed to restart with administrator privileges.\n\n%1").arg(errorText));
+            return false;
+        }
+        m_forceExit = true;
+        qApp->quit();
+        return true;
+#else
+        Q_UNUSED(this);
+        return false;
+#endif
     }
 
     void processStartupArguments() {
@@ -357,6 +403,8 @@ private:
         m_stateLabel = new QLabel(m_controlBox);
         m_stateLabel->setObjectName("stateLabel");
         m_stateLabel->setAlignment(Qt::AlignCenter);
+        m_stateLabel->setText(tr("VPN: Disconnected"));
+        m_disconnectButton->setEnabled(false);
         m_connectButton->setObjectName("connectButton");
         m_disconnectButton->setObjectName("disconnectButton");
         m_connectButton->setMinimumHeight(42);
@@ -406,15 +454,8 @@ private:
 
         statusBar()->showMessage("Ready");
 
-        m_helper = new QProcess(this);
-        m_helper->setProcessChannelMode(QProcess::MergedChannels);
-
-        m_helperPath = QCoreApplication::applicationDirPath() + "/trusttunnel-qt-helper";
-        m_helperLogPath = m_appSettings.log_path;
-        m_helperPidPath = "/tmp/trusttunnel-qt-helper.pid";
-
-        m_logPollTimer = new QTimer(this);
-        m_logPollTimer->setInterval(400);
+        m_vpnClient = new QtTrustTunnelClient(this);
+        m_vpnClient->setLogLevel(m_appSettings.log_level);
 
         m_addConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
         m_removeConfigButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
@@ -441,7 +482,9 @@ private:
             });
             connect(exitAction, &QAction::triggered, this, [this]() {
                 m_forceExit = true;
-                stopHelper();
+                if (m_vpnClient) {
+                    m_vpnClient->disconnectVpn();
+                }
                 qApp->quit();
             });
             connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
@@ -457,22 +500,6 @@ private:
     }
 
     void setupLogic() {
-        connect(m_logPollTimer, &QTimer::timeout, this, [this]() {
-            QFile f(m_helperLogPath);
-            if (!f.exists() || !f.open(QIODevice::ReadOnly)) {
-                return;
-            }
-            if (m_logPos > f.size()) {
-                m_logPos = 0;
-            }
-            if (!f.seek(m_logPos)) {
-                return;
-            }
-            const QByteArray chunk = f.readAll();
-            m_logPos = f.pos();
-            appendLogChunk(chunk);
-        });
-
         connect(m_toggleLogsAction, &QAction::toggled, this, [this](bool on) {
             m_logBox->setVisible(on);
             applyLanguage(m_currentLang);
@@ -499,7 +526,11 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
-                m_helperLogPath = m_appSettings.log_path;
+                m_appSettings.routing_enabled = dlg.routingEnabled();
+                m_appSettings.routing_mode = dlg.routingMode();
+                if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
+                if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
+                m_vpnClient->setLogLevel(m_appSettings.log_level);
                 saveAppSettings(m_appSettings);
                 applyTheme();
                 statusBar()->showMessage(tr("Settings saved"), 2000);
@@ -516,7 +547,11 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
-                m_helperLogPath = m_appSettings.log_path;
+                m_appSettings.routing_enabled = dlg.routingEnabled();
+                m_appSettings.routing_mode = dlg.routingMode();
+                if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
+                if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
+                m_vpnClient->setLogLevel(m_appSettings.log_level);
                 saveAppSettings(m_appSettings);
                 applyTheme();
                 statusBar()->showMessage(tr("Settings saved"), 2000);
@@ -628,90 +663,98 @@ private:
         });
 
         connect(m_connectButton, &QPushButton::clicked, this, [this]() {
-            if (m_helper->state() != QProcess::NotRunning) {
-                log(tr("Helper already running"));
-                return;
-            }
             if (m_configPath->text().isEmpty()) {
                 QMessageBox::warning(this, tr("Config Required"), tr("Select config file first."));
                 return;
             }
-
 #ifndef _WIN32
-            if (::geteuid() != 0) {
-                const QString runCmd = QString("%1 --config %2 --loglevel %3 >> %4 2>&1 & echo $! > %5")
-                                               .arg(shellEscape(m_helperPath))
-                                               .arg(shellEscape(m_configPath->text()))
-                                               .arg(shellEscape(m_appSettings.log_level))
-                                               .arg(shellEscape(m_helperLogPath))
-                                               .arg(shellEscape(m_helperPidPath));
-                const QString cmd = QString("rm -f %1; /bin/sh -c %2")
-                                            .arg(shellEscape(m_helperLogPath))
-                                            .arg(shellEscape(runCmd));
-                QString errorText;
-                if (!runElevatedShell(cmd, &errorText)) {
-                    QMessageBox::critical(this, tr("Elevation Failed"),
-                            tr("Failed to start elevated helper.\n\n%1").arg(errorText));
-                    return;
-                }
-                m_stateLabel->setText(tr("Helper: Running (elevated)"));
-                log(tr("Elevated helper started"));
-                m_logPos = 0;
-                m_logPollTimer->start();
-                addCurrentToStorage();
-                statusBar()->showMessage(tr("VPN helper started"), 2500);
+            if (!m_isRoot) {
+                log(tr("Restarting app with sudo for VPN privileges"));
+                relaunchElevated();
                 return;
             }
 #endif
-
-            m_helper->setProgram(m_helperPath);
-            m_helper->setArguments({"--config", m_configPath->text(), "--loglevel", m_appSettings.log_level});
-            m_helper->start();
+            std::vector<std::string> includeRoutes;
+            std::vector<std::string> excludeRoutes;
+            if (!prepareRoutingRules(includeRoutes, excludeRoutes)) {
+                return;
+            }
+            if (!m_vpnClient->loadConfigFromFile(m_configPath->text())) {
+                return;
+            }
+            m_vpnClient->setRoutingRules(includeRoutes, excludeRoutes);
+            log(tr("Connecting VPN..."));
+            m_vpnClient->connectVpn();
             addCurrentToStorage();
         });
 
         connect(m_disconnectButton, &QPushButton::clicked, this, [this]() {
-            if (!stopHelper()) {
-                log(tr("Helper is not running"));
+            m_vpnClient->disconnectVpn();
+            log(tr("Disconnect requested"));
+        });
+
+        connect(m_vpnClient, &QtTrustTunnelClient::stateChanged, this, [this](QtTrustTunnelClient::State s) {
+            switch (s) {
+            case QtTrustTunnelClient::State::Connecting:
+                m_stateLabel->setText(tr("VPN: Connecting"));
+                m_connectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(true);
+                break;
+            case QtTrustTunnelClient::State::Connected:
+                m_stateLabel->setText(tr("VPN: Connected"));
+                m_connectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(true);
+                statusBar()->showMessage(tr("VPN connected"), 2000);
+                break;
+            case QtTrustTunnelClient::State::Reconnecting:
+                m_stateLabel->setText(tr("VPN: Reconnecting"));
+                m_connectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(true);
+                break;
+            case QtTrustTunnelClient::State::Disconnecting:
+                m_stateLabel->setText(tr("VPN: Disconnecting"));
+                m_connectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(false);
+                break;
+            case QtTrustTunnelClient::State::Error:
+                m_stateLabel->setText(tr("VPN: Error"));
+                m_connectButton->setEnabled(true);
+                m_disconnectButton->setEnabled(false);
+                break;
+            case QtTrustTunnelClient::State::Disconnected:
+            default:
+                m_stateLabel->setText(tr("VPN: Disconnected"));
+                m_connectButton->setEnabled(true);
+                m_disconnectButton->setEnabled(false);
+                break;
             }
         });
 
-        connect(m_helper, &QProcess::started, this, [this]() {
-            m_stateLabel->setText(tr("Helper: Running"));
-            log(tr("Helper started"));
-            statusBar()->showMessage(tr("VPN helper started"), 2500);
+        connect(m_vpnClient, &QtTrustTunnelClient::vpnConnected, this, [this]() {
+            log(tr("VPN connected"));
         });
-
-        connect(m_helper, &QProcess::readyReadStandardOutput, this, [this]() {
-            appendLogChunk(m_helper->readAllStandardOutput());
+        connect(m_vpnClient, &QtTrustTunnelClient::vpnDisconnected, this, [this]() {
+            log(tr("VPN disconnected"));
         });
-
-        connect(m_helper, &QProcess::stateChanged, this, [this](QProcess::ProcessState state) {
-            switch (state) {
-            case QProcess::NotRunning:
-                m_stateLabel->setText(tr("Helper: Stopped"));
-                break;
-            case QProcess::Starting:
-                m_stateLabel->setText(tr("Helper: Starting"));
-                break;
-            case QProcess::Running:
-                m_stateLabel->setText(tr("Helper: Running"));
-                break;
+        connect(m_vpnClient, &QtTrustTunnelClient::vpnError, this, [this](const QString &msg) {
+            log(tr("VPN error: %1").arg(msg));
+            statusBar()->showMessage(msg, 4000);
+        });
+        connect(m_vpnClient, &QtTrustTunnelClient::connectionInfo, this, [this](const QString &msg) {
+            log(tr("Connection: %1").arg(msg));
+        });
+        connect(m_vpnClient, &QtTrustTunnelClient::clientOutput, this, [this](const QString &bytes) {
+            bool ok = false;
+            const quint64 b = bytes.toULongLong(&ok);
+            if (ok) {
+                m_bytesRx += b;
+                statusBar()->showMessage(tr("Rx: %1 KB  Tx: %2 KB")
+                                                 .arg(QString::number(m_bytesRx / 1024))
+                                                 .arg(QString::number(m_bytesTx / 1024)),
+                        1500);
             }
+            log(tr("Output chunk: %1 bytes").arg(bytes));
         });
-
-        connect(m_helper, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
-            m_stateLabel->setText(tr("Helper: Error"));
-            log(tr("Helper process error: %1").arg(static_cast<int>(err)));
-        });
-
-        connect(m_helper, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-                [this](int code, QProcess::ExitStatus status) {
-                    m_stateLabel->setText(tr("Helper: Stopped"));
-                    log(tr("Helper finished (code=%1, status=%2)")
-                                .arg(code)
-                                .arg(status == QProcess::NormalExit ? tr("normal") : tr("crash")));
-                });
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
         connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
@@ -755,17 +798,25 @@ private:
         }
 
         const QString text = m_stateLabel->text();
-        if (text.contains("Starting", Qt::CaseInsensitive)
-                || text.contains("Запуска", Qt::CaseInsensitive)) {
-            m_stateLabel->setText(ru ? "Помощник: запускается" : "Helper: Starting");
-        } else if (text.contains("Running", Qt::CaseInsensitive)
-                || text.contains("Работ", Qt::CaseInsensitive)) {
-            m_stateLabel->setText(ru ? "Помощник: работает" : "Helper: Running");
+        if (text.contains("Connecting", Qt::CaseInsensitive)
+                || text.contains("соедин", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: подключение" : "VPN: Connecting");
+        } else if (text.contains("Connected", Qt::CaseInsensitive)
+                || text.contains("подключен", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: подключено" : "VPN: Connected");
+        } else if (text.contains("Reconnecting", Qt::CaseInsensitive)
+                || text.contains("переподк", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: переподключение" : "VPN: Reconnecting");
+        } else if (text.contains("Error", Qt::CaseInsensitive)
+                || text.contains("ошиб", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: ошибка" : "VPN: Error");
         } else {
-            m_stateLabel->setText(ru ? "Помощник: остановлен" : "Helper: Stopped");
+            m_stateLabel->setText(ru ? "VPN: отключено" : "VPN: Disconnected");
         }
 
-        setWindowTitle(ru ? "FireTunnel" : "FireTunnel");
+        const QString baseTitle = ru ? "FireTunnel" : "FireTunnel";
+        const QString full = ru ? " (Полный режим)" : " (Full mode)";
+        setWindowTitle(m_isRoot ? baseTitle + full : baseTitle);
     }
 
     void appendLogChunk(const QByteArray &chunk) {
@@ -922,12 +973,10 @@ private:
     QAction *m_langRuAction = nullptr;
     QString m_currentLang = "en";
 
-    QProcess *m_helper = nullptr;
-    QTimer *m_logPollTimer = nullptr;
-    QString m_helperPath;
-    QString m_helperLogPath;
-    QString m_helperPidPath;
-    qint64 m_logPos = 0;
+    bool m_isRoot = false;
+    quint64 m_bytesRx = 0;
+    quint64 m_bytesTx = 0;
+    QtTrustTunnelClient *m_vpnClient = nullptr;
     AppSettings m_appSettings;
 };
 
