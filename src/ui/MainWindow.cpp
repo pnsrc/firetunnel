@@ -227,14 +227,26 @@ private:
         const QString cache = m_appSettings.routing_cache_path;
         const QString url = m_appSettings.routing_source_url;
         QFileInfo fi(cache);
+        std::unique_ptr<QProgressDialog> routingProgress;
         if (!fi.exists() || fi.size() == 0) {
             log(tr("Routing cache missing, downloading..."));
+            routingProgress = std::make_unique<QProgressDialog>(
+                    tr("Downloading routing list..."), QString(), 0, 0, this,
+                    Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+            routingProgress->setWindowModality(Qt::ApplicationModal);
+            routingProgress->setAutoClose(true);
+            routingProgress->setMinimumDuration(0);
+            routingProgress->setRange(0, 0);
+            routingProgress->show();
+            qApp->processEvents(QEventLoop::AllEvents, 50);
             if (!downloadRoutingList(url, cache)) {
                 QMessageBox::warning(this, tr("Routing"),
                         tr("Failed to download routing list.\nCheck connection and try again."));
+                if (routingProgress) routingProgress->close();
                 return false;
             }
             log(tr("Routing list cached to %1").arg(cache));
+            if (routingProgress) routingProgress->close();
         }
         QFile f(cache);
         if (!f.open(QIODevice::ReadOnly)) {
