@@ -7,6 +7,7 @@
 #include <QPixmap>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QCoreApplication>
 #include <QFile>
 #include <QApplication>
 
@@ -51,14 +52,16 @@ bool runElevatedShell(const QString &command, QString *errorText) {
 }
 
 QIcon makeAppIcon() {
-    QString assetPath = QCoreApplication::applicationDirPath() + "/assets/logo.png";
-    if (!QFile::exists(assetPath)) {
-        // Fallback to shared assets location if launched from build tree
-        const QString alt = QStandardPaths::locate(QStandardPaths::AppDataLocation, "assets/logo.png");
-        if (!alt.isEmpty()) assetPath = alt;
-    }
     QPixmap pm;
-    if (!pm.load(assetPath)) {
+    if (!pm.load(":/assets/logo.png")) {
+        QString assetPath = QCoreApplication::applicationDirPath() + "/assets/logo.png";
+        if (!QFile::exists(assetPath)) {
+            const QString alt = QStandardPaths::locate(QStandardPaths::AppDataLocation, "assets/logo.png");
+            if (!alt.isEmpty()) assetPath = alt;
+        }
+        pm.load(assetPath);
+    }
+    if (pm.isNull()) {
         pm = QPixmap(256, 256);
         pm.fill(Qt::transparent);
         QPainter p(&pm);

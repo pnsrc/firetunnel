@@ -48,6 +48,10 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 #include "AppSettings.h"
 #include "AppUiUtils.h"
@@ -252,8 +256,24 @@ private:
         qApp->quit();
         return true;
 #else
-        Q_UNUSED(this);
-        return false;
+        const QString exe = QCoreApplication::applicationFilePath();
+        SHELLEXECUTEINFOW sei{};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+        sei.hwnd = reinterpret_cast<HWND>(this->winId());
+        sei.lpVerb = L"runas";
+        std::wstring wexe = exe.toStdWString();
+        sei.lpFile = wexe.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        if (!ShellExecuteExW(&sei)) {
+            QMessageBox::critical(this, tr("Elevation Failed"),
+                    tr("Failed to restart with administrator privileges.\n\nError code: %1")
+                            .arg(QString::number(GetLastError())));
+            return false;
+        }
+        m_forceExit = true;
+        qApp->quit();
+        return true;
 #endif
     }
 
@@ -816,7 +836,12 @@ private:
 
         const QString baseTitle = ru ? "FireTunnel" : "FireTunnel";
         const QString full = ru ? " (Полный режим)" : " (Full mode)";
-        setWindowTitle(m_isRoot ? baseTitle + full : baseTitle);
+        const bool elevated = m_isRoot
+#ifdef _WIN32
+                || is_process_elevated()
+#endif
+                ;
+        setWindowTitle(elevated ? baseTitle + full : baseTitle);
     }
 
     void appendLogChunk(const QByteArray &chunk) {

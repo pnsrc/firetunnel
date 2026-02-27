@@ -38,6 +38,7 @@ add_executable(trusttunnel-qt MACOSX_BUNDLE
     include/ui/SettingsDialog.h
     src/vpn/qt_trusttunnel_client.cpp
     include/vpn/qt_trusttunnel_client.h
+    assets/app.qrc
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
