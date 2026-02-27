@@ -649,6 +649,10 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_appSettings.notify_on_state = dlg.notifyOnState();
+                m_appSettings.notify_only_errors = dlg.notifyOnlyErrors();
+                m_appSettings.killswitch_enabled = dlg.killswitchEnabled();
+                m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
                 m_appSettings.show_logs_panel = dlg.showLogsPanel();
                 m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
                 m_appSettings.routing_enabled = dlg.routingEnabled();
@@ -674,6 +678,10 @@ private:
                 }
                 m_appSettings.theme_mode = dlg.themeMode();
                 m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+                m_appSettings.notify_on_state = dlg.notifyOnState();
+                m_appSettings.notify_only_errors = dlg.notifyOnlyErrors();
+                m_appSettings.killswitch_enabled = dlg.killswitchEnabled();
+                m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
                 m_appSettings.show_logs_panel = dlg.showLogsPanel();
                 m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
                 m_appSettings.routing_enabled = dlg.routingEnabled();
@@ -877,13 +885,22 @@ private:
 
         connect(m_vpnClient, &QtTrustTunnelClient::vpnConnected, this, [this]() {
             log(tr("VPN connected"));
+            if (m_appSettings.notify_on_state && !m_appSettings.notify_only_errors && m_tray) {
+                m_tray->showMessage(windowTitle(), tr("VPN connected"), QSystemTrayIcon::Information, 2000);
+            }
         });
         connect(m_vpnClient, &QtTrustTunnelClient::vpnDisconnected, this, [this]() {
             log(tr("VPN disconnected"));
+            if (m_appSettings.notify_on_state && !m_appSettings.notify_only_errors && m_tray) {
+                m_tray->showMessage(windowTitle(), tr("VPN disconnected"), QSystemTrayIcon::Information, 2000);
+            }
         });
         connect(m_vpnClient, &QtTrustTunnelClient::vpnError, this, [this](const QString &msg) {
             log(tr("VPN error: %1").arg(msg));
             statusBar()->showMessage(msg, 4000);
+            if (m_appSettings.notify_on_state && m_tray) {
+                m_tray->showMessage(windowTitle(), msg, QSystemTrayIcon::Critical, 4000);
+            }
         });
         connect(m_vpnClient, &QtTrustTunnelClient::connectionInfo, this, [this](const QString &msg) {
             log(tr("Connection: %1").arg(msg));

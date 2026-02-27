@@ -104,11 +104,17 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_showLogsPanelCheck->setChecked(settings.show_logs_panel);
     m_showTrafficCheck = new QCheckBox(ru ? "Показывать трафик в статусе" : "Show traffic in status bar", logsPage);
     m_showTrafficCheck->setChecked(settings.show_traffic_in_status);
+    m_notifyOnStateCheck = new QCheckBox(ru ? "Уведомления о смене состояния" : "Notify on state changes", logsPage);
+    m_notifyOnStateCheck->setChecked(settings.notify_on_state);
+    m_notifyErrorsOnlyCheck = new QCheckBox(ru ? "Только при ошибках" : "Only on errors", logsPage);
+    m_notifyErrorsOnlyCheck->setChecked(settings.notify_only_errors);
     logsLayout->addRow(m_saveLogsCheck);
     logsLayout->addRow(ru ? "Уровень логов:" : "Log level:", m_logLevelCombo);
     logsLayout->addRow(ru ? "Файл логов:" : "Log file:", pathRow);
     logsLayout->addRow(m_showLogsPanelCheck);
     logsLayout->addRow(m_showTrafficCheck);
+    logsLayout->addRow(m_notifyOnStateCheck);
+    logsLayout->addRow(m_notifyErrorsOnlyCheck);
     tabs->addTab(logsPage, ru ? "Логирование" : "Logging");
 
     auto *appearancePage = new QWidget(this);
@@ -123,6 +129,12 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_autoConnectCheck = new QCheckBox(ru ? "Автоподключение при запуске" : "Auto-connect on app start", appearancePage);
     m_autoConnectCheck->setChecked(settings.auto_connect_on_start);
     appearanceLayout->addRow(QString(), m_autoConnectCheck);
+    m_killswitchCheck = new QCheckBox(ru ? "Kill switch (блокировать трафик вне VPN)" : "Kill switch (block untunneled traffic)", appearancePage);
+    m_killswitchCheck->setChecked(settings.killswitch_enabled);
+    m_strictCertCheck = new QCheckBox(ru ? "Строгая проверка сертификата" : "Strict certificate verification", appearancePage);
+    m_strictCertCheck->setChecked(settings.strict_certificate_check);
+    appearanceLayout->addRow(QString(), m_killswitchCheck);
+    appearanceLayout->addRow(QString(), m_strictCertCheck);
     tabs->addTab(appearancePage, ru ? "Внешний вид" : "Appearance");
 
     auto *routingPage = new QWidget(this);
@@ -188,6 +200,10 @@ QString SettingsDialog::themeMode() const { return m_themeModeCombo ? m_themeMod
 bool SettingsDialog::autoConnectOnStart() const { return m_autoConnectCheck && m_autoConnectCheck->isChecked(); }
 bool SettingsDialog::showLogsPanel() const { return m_showLogsPanelCheck && m_showLogsPanelCheck->isChecked(); }
 bool SettingsDialog::showTrafficInStatus() const { return m_showTrafficCheck && m_showTrafficCheck->isChecked(); }
+bool SettingsDialog::notifyOnState() const { return m_notifyOnStateCheck && m_notifyOnStateCheck->isChecked(); }
+bool SettingsDialog::notifyOnlyErrors() const { return m_notifyErrorsOnlyCheck && m_notifyErrorsOnlyCheck->isChecked(); }
+bool SettingsDialog::killswitchEnabled() const { return m_killswitchCheck && m_killswitchCheck->isChecked(); }
+bool SettingsDialog::strictCertificateCheck() const { return m_strictCertCheck && m_strictCertCheck->isChecked(); }
 bool SettingsDialog::routingEnabled() const { return m_routingEnableCheck && m_routingEnableCheck->isChecked(); }
 QString SettingsDialog::routingMode() const {
     if (m_routingBypassRadio && m_routingBypassRadio->isChecked()) return "bypass_ru";

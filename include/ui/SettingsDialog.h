@@ -21,6 +21,10 @@ public:
     bool autoConnectOnStart() const;
     bool showLogsPanel() const;
     bool showTrafficInStatus() const;
+    bool notifyOnState() const;
+    bool notifyOnlyErrors() const;
+    bool killswitchEnabled() const;
+    bool strictCertificateCheck() const;
     bool routingEnabled() const;
     QString routingMode() const;
     QString routingSourceUrl() const;
@@ -31,6 +35,10 @@ private:
     QComboBox *m_logLevelCombo = nullptr;
     QCheckBox *m_showLogsPanelCheck = nullptr;
     QCheckBox *m_showTrafficCheck = nullptr;
+    QCheckBox *m_notifyOnStateCheck = nullptr;
+    QCheckBox *m_notifyErrorsOnlyCheck = nullptr;
+    QCheckBox *m_killswitchCheck = nullptr;
+    QCheckBox *m_strictCertCheck = nullptr;
     QComboBox *m_themeModeCombo = nullptr;
     QLineEdit *m_logPathEdit = nullptr;
     QCheckBox *m_autoConnectCheck = nullptr;

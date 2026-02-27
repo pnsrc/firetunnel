@@ -11,6 +11,10 @@ struct AppSettings {
     bool auto_connect_on_start = false;
     bool show_logs_panel = true;
     bool show_traffic_in_status = true;
+    bool notify_on_state = true;
+    bool notify_only_errors = false;
+    bool killswitch_enabled = false;
+    bool strict_certificate_check = true;
     bool routing_enabled = false;
     QString routing_mode = "tunnel_ru"; // tunnel_ru | bypass_ru
     QString routing_cache_path = "";
