@@ -22,7 +22,7 @@ if (GIT_FOUND)
     )
 endif()
 
-add_executable(trusttunnel-qt MACOSX_BUNDLE
+add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     main.cpp
     src/ui/MainWindow.cpp
     include/ui/MainWindow.h
