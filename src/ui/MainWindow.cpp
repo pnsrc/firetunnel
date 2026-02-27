@@ -45,6 +45,7 @@
 #include <QUrlQuery>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QToolButton>
 #include <QtGlobal>
 
 #include "common/logger.h"
@@ -505,6 +506,15 @@ private:
         m_logBox = new QGroupBox(root);
         m_logBox->setObjectName("logBox");
         auto *logLayout = new QVBoxLayout(m_logBox);
+        auto *logHeader = new QHBoxLayout();
+        logHeader->setContentsMargins(0, 0, 0, 0);
+        logHeader->addStretch();
+        auto *hideLogsBtn = new QToolButton(m_logBox);
+        hideLogsBtn->setText("×");
+        hideLogsBtn->setToolTip(tr("Hide logs"));
+        hideLogsBtn->setAutoRaise(true);
+        logHeader->addWidget(hideLogsBtn);
+        logLayout->addLayout(logHeader);
         m_logView = new QTextEdit(m_logBox);
         m_logView->setReadOnly(true);
         logLayout->addWidget(m_logView);
@@ -525,6 +535,8 @@ private:
                 "QPushButton#connectButton:hover{background:#1465df;}"
                 "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
                 "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
+                "QToolButton{border:none;padding:4px;border-radius:6px;}"
+                "QToolButton:hover{background:#e8edf7;}"
                 "QMenuBar{background:#f4f6fb;}"
                 "QStatusBar{background:#f4f6fb;color:#415170;}"
         );
@@ -592,6 +604,12 @@ private:
         connect(m_toggleLogsAction, &QAction::toggled, this, [this](bool on) {
             m_logBox->setVisible(on);
             applyLanguage(m_currentLang);
+        });
+
+        // close button in logs header
+        connect(findChild<QToolButton *>(), &QToolButton::clicked, this, [this]() {
+            m_logBox->setVisible(false);
+            if (m_toggleLogsAction) m_toggleLogsAction->setChecked(false);
         });
 
         connect(m_langEnAction, &QAction::triggered, this, [this]() {
