@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -417,7 +418,7 @@ private:
 
     void setupUi() {
         setWindowTitle("FireTunnel");
-        resize(980, 650);
+        resize(1040, 700);
         setWindowIcon(makeAppIcon());
         m_appMenu = menuBar()->addMenu("App");
         auto *appMenu = m_appMenu;
@@ -447,11 +448,11 @@ private:
 
         auto *root = new QWidget(this);
         auto *layout = new QVBoxLayout(root);
-        layout->setContentsMargins(16, 16, 16, 16);
-        layout->setSpacing(12);
+        layout->setContentsMargins(18, 18, 18, 18);
+        layout->setSpacing(14);
 
         auto *topRow = new QHBoxLayout();
-        topRow->setSpacing(12);
+        topRow->setSpacing(14);
 
         m_configsBox = new QGroupBox(root);
         m_configsBox->setObjectName("configsBox");
@@ -484,17 +485,36 @@ private:
         m_disconnectButton->setEnabled(false);
         m_connectButton->setObjectName("connectButton");
         m_disconnectButton->setObjectName("disconnectButton");
-        m_connectButton->setMinimumHeight(42);
-        m_disconnectButton->setMinimumHeight(42);
+        m_connectButton->setMinimumHeight(54);
+        m_disconnectButton->setMinimumHeight(48);
 
-        m_configPath->setPlaceholderText("Path to TrustTunnel TOML config");
+        m_configPath->setPlaceholderText("Choose config to get started...");
         pathRow->addWidget(m_configPath);
         pathRow->addWidget(m_browseButton);
         pathRow->addWidget(m_viewConfigButton);
         auto *actionRow = new QHBoxLayout();
-        actionRow->setSpacing(10);
-        actionRow->addWidget(m_connectButton);
-        actionRow->addWidget(m_disconnectButton);
+        actionRow->setSpacing(12);
+
+        // Primary CTA column
+        auto *ctaCol = new QVBoxLayout();
+        ctaCol->setSpacing(8);
+        m_connectButton->setMinimumWidth(200);
+        m_disconnectButton->setMinimumWidth(200);
+        ctaCol->addWidget(m_connectButton);
+        ctaCol->addWidget(m_disconnectButton);
+
+        // Status pane with big label
+        auto *statusCard = new QVBoxLayout();
+        auto *statusFrame = new QFrame(m_controlBox);
+        statusFrame->setObjectName("statusFrame");
+        auto *statusLayout = new QVBoxLayout(statusFrame);
+        statusLayout->setContentsMargins(12, 12, 12, 12);
+        statusLayout->addWidget(m_stateLabel);
+        statusCard->addWidget(statusFrame);
+
+        actionRow->addLayout(ctaCol);
+        actionRow->addLayout(statusCard, 1);
+
         controlLayout->addLayout(pathRow);
         controlLayout->addLayout(actionRow);
         controlLayout->addWidget(m_stateLabel);
@@ -514,19 +534,20 @@ private:
 
         setCentralWidget(root);
         setStyleSheet(
-                "QMainWindow{background:#f4f6fb;}"
-                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;"
-                "font-weight:600;color:#1f2a44;}"
+                "QMainWindow{background:#0b1220;}"
+                "QGroupBox{background:#0f182b;border:1px solid #1f2d45;border-radius:14px;margin-top:12px;"
+                "font-weight:600;color:#dfe7ff;}"
                 "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
-                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
-                "QPushButton:hover{background:#e5ecff;}"
-                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
-                "QPushButton#connectButton:hover{background:#1465df;}"
-                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
-                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
-                "QMenuBar{background:#f4f6fb;}"
-                "QStatusBar{background:#f4f6fb;color:#415170;}"
+                "QListWidget,QTextEdit,QLineEdit{background:#0d1526;border:1px solid #1f2d45;border-radius:12px;padding:10px;color:#dfe7ff;}"
+                "QPushButton{background:#12203a;border:1px solid #1f2d45;border-radius:12px;padding:10px 14px;color:#dfe7ff;font-weight:600;}"
+                "QPushButton:hover{background:#162847;}"
+                "QPushButton#connectButton{background:#00a3ff;color:#ffffff;border:1px solid #0093e6;font-weight:700;}")
+                "QPushButton#connectButton:hover{background:#0089d6;}"
+                "QPushButton#disconnectButton{background:#111c2f;color:#9fb4dd;border:1px solid #1f2d45;font-weight:600;}"
+                "QLabel#stateLabel{background:#102035;color:#81e6ff;border:1px solid #1f3d5c;border-radius:12px;padding:10px;font-weight:800;font-size:15px;}"
+                "QFrame#statusFrame{background:#0d1526;border:1px solid #1f2d45;border-radius:12px;}"
+                "QMenuBar{background:#0b1220;color:#dfe7ff;}"
+                "QStatusBar{background:#0b1220;color:#8aa5d6;}"
         );
 
         statusBar()->showMessage("Ready");
