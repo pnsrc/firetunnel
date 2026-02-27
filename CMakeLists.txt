@@ -41,7 +41,7 @@ add_executable(trusttunnel-qt MACOSX_BUNDLE
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
-    FIRETUNNEL_VERSION="0.3b"
+    FIRETUNNEL_VERSION="0.4b"
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 

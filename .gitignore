@@ -12,6 +12,13 @@ cmake_install.cmake
 CTestTestfile.cmake
 _testing/
 
+# Qt Creator / qmake
+*.pro.user*
+*.pri.user*
+*.qmlproject.user*
+.qmake.stash
+.qmake.cache
+
 # Qt generated
 *.autogen/
 *.qrc.depends
@@ -35,3 +42,10 @@ trusttunnel-qt-helper
 # Logs/temp
 *.log
 *.tmp
+
+env/
+.env/
+venv/
+.idea/
+.vscode/
+*.swp

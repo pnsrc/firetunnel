@@ -293,7 +293,7 @@ private:
     }
 
     void setupUi() {
-        setWindowTitle("TrustTunnel Qt Client");
+        setWindowTitle("FireTunnel");
         resize(980, 650);
         setWindowIcon(makeAppIcon());
         m_appMenu = menuBar()->addMenu("App");
@@ -303,9 +303,6 @@ private:
         m_createConfigAction = appMenu->addAction("Create Config");
         appMenu->addSeparator();
         m_quitAction = appMenu->addAction("Quit");
-
-        m_settingsMenu = menuBar()->addMenu("Settings");
-        m_settingsMenuAction = m_settingsMenu->addAction("Open Settings");
 
         m_viewMenu = menuBar()->addMenu("View");
         auto *viewMenu = m_viewMenu;
@@ -689,6 +686,20 @@ private:
             appendLogChunk(m_helper->readAllStandardOutput());
         });
 
+        connect(m_helper, &QProcess::stateChanged, this, [this](QProcess::ProcessState state) {
+            switch (state) {
+            case QProcess::NotRunning:
+                m_stateLabel->setText(tr("Helper: Stopped"));
+                break;
+            case QProcess::Starting:
+                m_stateLabel->setText(tr("Helper: Starting"));
+                break;
+            case QProcess::Running:
+                m_stateLabel->setText(tr("Helper: Running"));
+                break;
+            }
+        });
+
         connect(m_helper, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
             m_stateLabel->setText(tr("Helper: Error"));
             log(tr("Helper process error: %1").arg(static_cast<int>(err)));
@@ -743,14 +754,18 @@ private:
                                                                          : (ru ? "Показать логи" : "Show Logs"));
         }
 
-        if (m_stateLabel->text().contains("Running", Qt::CaseInsensitive)
-                || m_stateLabel->text().contains("Работ", Qt::CaseInsensitive)) {
+        const QString text = m_stateLabel->text();
+        if (text.contains("Starting", Qt::CaseInsensitive)
+                || text.contains("Запуска", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "Помощник: запускается" : "Helper: Starting");
+        } else if (text.contains("Running", Qt::CaseInsensitive)
+                || text.contains("Работ", Qt::CaseInsensitive)) {
             m_stateLabel->setText(ru ? "Помощник: работает" : "Helper: Running");
         } else {
             m_stateLabel->setText(ru ? "Помощник: остановлен" : "Helper: Stopped");
         }
 
-        setWindowTitle(ru ? "TrustTunnel Qt Клиент" : "TrustTunnel Qt Client");
+        setWindowTitle(ru ? "FireTunnel" : "FireTunnel");
     }
 
     void appendLogChunk(const QByteArray &chunk) {
