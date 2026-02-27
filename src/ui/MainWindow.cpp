@@ -114,6 +114,12 @@ public:
             m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
             m_logBox->setVisible(m_appSettings.show_logs_panel);
         }
+
+        // Restore notification toggles in tray availability
+        if (!m_appSettings.notify_on_state && m_tray) {
+            m_tray->hide();
+            m_tray->show(); // ensure icon exists but notifications obey setting
+        }
     }
 
 protected:

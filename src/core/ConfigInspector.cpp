@@ -221,6 +221,7 @@ QString loadLicenseText() {
             QCoreApplication::applicationDirPath() + "/../../LICENSE",
             QCoreApplication::applicationDirPath() + "/../../../LICENSE",
             QDir::currentPath() + "/LICENSE",
+            ":/assets/LICENSE"
     };
 
     for (const QString &path : candidates) {

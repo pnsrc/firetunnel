@@ -87,6 +87,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     licenseLayout->addWidget(licenseView);
     tabs->addTab(licensePage, ru ? "Лицензии" : "Licenses");
 
+    // Logging tab
     auto *logsPage = new QWidget(this);
     auto *logsLayout = new QFormLayout(logsPage);
     m_saveLogsCheck = new QCheckBox(ru ? "Сохранять логи в файл" : "Save logs to file", logsPage);
@@ -104,18 +105,23 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_showLogsPanelCheck->setChecked(settings.show_logs_panel);
     m_showTrafficCheck = new QCheckBox(ru ? "Показывать трафик в статусе" : "Show traffic in status bar", logsPage);
     m_showTrafficCheck->setChecked(settings.show_traffic_in_status);
-    m_notifyOnStateCheck = new QCheckBox(ru ? "Уведомления о смене состояния" : "Notify on state changes", logsPage);
-    m_notifyOnStateCheck->setChecked(settings.notify_on_state);
-    m_notifyErrorsOnlyCheck = new QCheckBox(ru ? "Только при ошибках" : "Only on errors", logsPage);
-    m_notifyErrorsOnlyCheck->setChecked(settings.notify_only_errors);
     logsLayout->addRow(m_saveLogsCheck);
     logsLayout->addRow(ru ? "Уровень логов:" : "Log level:", m_logLevelCombo);
     logsLayout->addRow(ru ? "Файл логов:" : "Log file:", pathRow);
     logsLayout->addRow(m_showLogsPanelCheck);
     logsLayout->addRow(m_showTrafficCheck);
-    logsLayout->addRow(m_notifyOnStateCheck);
-    logsLayout->addRow(m_notifyErrorsOnlyCheck);
     tabs->addTab(logsPage, ru ? "Логирование" : "Logging");
+
+    // Notifications tab
+    auto *notifyPage = new QWidget(this);
+    auto *notifyLayout = new QFormLayout(notifyPage);
+    m_notifyOnStateCheck = new QCheckBox(ru ? "Уведомлять о смене состояния" : "Notify on state changes", notifyPage);
+    m_notifyOnStateCheck->setChecked(settings.notify_on_state);
+    m_notifyErrorsOnlyCheck = new QCheckBox(ru ? "Только при ошибках" : "Only on errors", notifyPage);
+    m_notifyErrorsOnlyCheck->setChecked(settings.notify_only_errors);
+    notifyLayout->addRow(m_notifyOnStateCheck);
+    notifyLayout->addRow(m_notifyErrorsOnlyCheck);
+    tabs->addTab(notifyPage, ru ? "Уведомления" : "Notifications");
 
     auto *appearancePage = new QWidget(this);
     auto *appearanceLayout = new QFormLayout(appearancePage);
@@ -129,13 +135,18 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_autoConnectCheck = new QCheckBox(ru ? "Автоподключение при запуске" : "Auto-connect on app start", appearancePage);
     m_autoConnectCheck->setChecked(settings.auto_connect_on_start);
     appearanceLayout->addRow(QString(), m_autoConnectCheck);
-    m_killswitchCheck = new QCheckBox(ru ? "Kill switch (блокировать трафик вне VPN)" : "Kill switch (block untunneled traffic)", appearancePage);
-    m_killswitchCheck->setChecked(settings.killswitch_enabled);
-    m_strictCertCheck = new QCheckBox(ru ? "Строгая проверка сертификата" : "Strict certificate verification", appearancePage);
-    m_strictCertCheck->setChecked(settings.strict_certificate_check);
-    appearanceLayout->addRow(QString(), m_killswitchCheck);
-    appearanceLayout->addRow(QString(), m_strictCertCheck);
     tabs->addTab(appearancePage, ru ? "Внешний вид" : "Appearance");
+
+    // Security tab
+    auto *securityPage = new QWidget(this);
+    auto *securityLayout = new QFormLayout(securityPage);
+    m_killswitchCheck = new QCheckBox(ru ? "Kill switch (блокировать трафик вне VPN)" : "Kill switch (block untunneled traffic)", securityPage);
+    m_killswitchCheck->setChecked(settings.killswitch_enabled);
+    m_strictCertCheck = new QCheckBox(ru ? "Строгая проверка сертификата" : "Strict certificate verification", securityPage);
+    m_strictCertCheck->setChecked(settings.strict_certificate_check);
+    securityLayout->addRow(m_killswitchCheck);
+    securityLayout->addRow(m_strictCertCheck);
+    tabs->addTab(securityPage, ru ? "Безопасность" : "Security");
 
     auto *routingPage = new QWidget(this);
     auto *routingLayout = new QFormLayout(routingPage);

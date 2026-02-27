@@ -106,4 +106,7 @@ add_custom_command(TARGET trusttunnel-qt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_LIST_DIR}/assets/logo.png
         $<TARGET_FILE_DIR:trusttunnel-qt>/assets/logo.png
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TRUSTTUNNEL_REPO_ROOT}/LICENSE
+        $<TARGET_FILE_DIR:trusttunnel-qt>/assets/LICENSE
 )
