@@ -79,6 +79,10 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     auto *licensePage = new QWidget(this);
     auto *licenseLayout = new QVBoxLayout(licensePage);
     auto *licenseView = new QTextBrowser(licensePage);
+    licenseView->setReadOnly(true);
+    licenseView->setFontFamily("Menlo, Consolas, monospace");
+    licenseView->setOpenExternalLinks(true);
+    licenseView->setLineWrapMode(QTextEdit::NoWrap);
     licenseView->setPlainText(loadLicenseText());
     licenseLayout->addWidget(licenseView);
     tabs->addTab(licensePage, ru ? "Лицензии" : "Licenses");

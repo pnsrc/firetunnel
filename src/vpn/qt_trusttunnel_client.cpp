@@ -163,10 +163,6 @@ void QtTrustTunnelClient::doConnectAttempt() {
             scheduleReconnect(QString("connect() failed: %1").arg(qErr));
             return;
         }
-
-        m_reconnectDelayMs = 1000;
-        setState(State::Connected);
-        emit vpnConnected();
     } catch (const std::exception &e) {
         scheduleReconnect(QString::fromUtf8(e.what()));
     }

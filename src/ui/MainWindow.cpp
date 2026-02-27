@@ -186,8 +186,22 @@ private:
         QNetworkRequest req(url);
         QEventLoop loop;
         QNetworkReply *reply = mgr.get(req);
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        timeout.start(8000);
+        connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
         connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
         loop.exec();
+
+        if (timeout.isActive()) {
+            timeout.stop();
+        } else {
+            reply->abort();
+            log(tr("Routing download timed out"));
+            reply->deleteLater();
+            return false;
+        }
+
         if (reply->error() != QNetworkReply::NoError) {
             log(tr("Routing download failed: %1").arg(reply->errorString()));
             reply->deleteLater();
