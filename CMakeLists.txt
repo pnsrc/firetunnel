@@ -24,7 +24,9 @@ endif()
 
 set(APP_ICON_RC)
 if (WIN32)
-    set(APP_ICON_RC win/appicon.rc)
+    set(APP_ICON_PATH "${CMAKE_CURRENT_LIST_DIR}/assets/logo.ico")
+    set(APP_ICON_RC "${CMAKE_CURRENT_BINARY_DIR}/appicon.rc")
+    configure_file(win/appicon.rc.in "${APP_ICON_RC}" @ONLY)
 endif ()
 
 add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
