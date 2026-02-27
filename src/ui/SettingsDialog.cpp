@@ -100,9 +100,15 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     auto *pathRow = new QHBoxLayout();
     pathRow->addWidget(m_logPathEdit);
     pathRow->addWidget(pickPathBtn);
+    m_showLogsPanelCheck = new QCheckBox(ru ? "Показывать панель логов" : "Show logs panel", logsPage);
+    m_showLogsPanelCheck->setChecked(settings.show_logs_panel);
+    m_showTrafficCheck = new QCheckBox(ru ? "Показывать трафик в статусе" : "Show traffic in status bar", logsPage);
+    m_showTrafficCheck->setChecked(settings.show_traffic_in_status);
     logsLayout->addRow(m_saveLogsCheck);
     logsLayout->addRow(ru ? "Уровень логов:" : "Log level:", m_logLevelCombo);
     logsLayout->addRow(ru ? "Файл логов:" : "Log file:", pathRow);
+    logsLayout->addRow(m_showLogsPanelCheck);
+    logsLayout->addRow(m_showTrafficCheck);
     tabs->addTab(logsPage, ru ? "Логирование" : "Logging");
 
     auto *appearancePage = new QWidget(this);
@@ -180,6 +186,8 @@ QString SettingsDialog::logLevel() const { return m_logLevelCombo ? m_logLevelCo
 QString SettingsDialog::logPath() const { return m_logPathEdit ? m_logPathEdit->text().trimmed() : QString(); }
 QString SettingsDialog::themeMode() const { return m_themeModeCombo ? m_themeModeCombo->currentData().toString() : "system"; }
 bool SettingsDialog::autoConnectOnStart() const { return m_autoConnectCheck && m_autoConnectCheck->isChecked(); }
+bool SettingsDialog::showLogsPanel() const { return m_showLogsPanelCheck && m_showLogsPanelCheck->isChecked(); }
+bool SettingsDialog::showTrafficInStatus() const { return m_showTrafficCheck && m_showTrafficCheck->isChecked(); }
 bool SettingsDialog::routingEnabled() const { return m_routingEnableCheck && m_routingEnableCheck->isChecked(); }
 QString SettingsDialog::routingMode() const {
     if (m_routingBypassRadio && m_routingBypassRadio->isChecked()) return "bypass_ru";

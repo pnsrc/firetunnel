@@ -106,6 +106,12 @@ public:
                 }
             });
         }
+
+        // Restore logs panel visibility from settings
+        if (m_toggleLogsAction) {
+            m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+            m_logBox->setVisible(m_appSettings.show_logs_panel);
+        }
     }
 
 protected:
@@ -603,6 +609,8 @@ private:
     void setupLogic() {
         connect(m_toggleLogsAction, &QAction::toggled, this, [this](bool on) {
             m_logBox->setVisible(on);
+            m_appSettings.show_logs_panel = on;
+            saveAppSettings(m_appSettings);
             applyLanguage(m_currentLang);
         });
 
@@ -610,6 +618,8 @@ private:
         connect(findChild<QToolButton *>(), &QToolButton::clicked, this, [this]() {
             m_logBox->setVisible(false);
             if (m_toggleLogsAction) m_toggleLogsAction->setChecked(false);
+            m_appSettings.show_logs_panel = false;
+            saveAppSettings(m_appSettings);
         });
 
         connect(m_langEnAction, &QAction::triggered, this, [this]() {
@@ -876,6 +886,7 @@ private:
         m_statsTimer.setSingleShot(false);
         m_statsTimer.setInterval(1500);
         connect(&m_statsTimer, &QTimer::timeout, this, [this]() {
+            if (!m_appSettings.show_traffic_in_status) return;
             statusBar()->showMessage(tr("Traffic Rx: %1 KB  Tx: %2 KB")
                                              .arg(QString::number(m_bytesRx / 1024))
                                              .arg(QString::number(m_bytesTx / 1024)),

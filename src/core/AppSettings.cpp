@@ -24,6 +24,8 @@ AppSettings loadAppSettings() {
     out.theme_mode = s.value("ui/theme_mode", "system").toString();
     out.language = s.value("ui/language", "en").toString();
     out.auto_connect_on_start = s.value("vpn/auto_connect_on_start", false).toBool();
+    out.show_logs_panel = s.value("ui/show_logs_panel", true).toBool();
+    out.show_traffic_in_status = s.value("ui/show_traffic_in_status", true).toBool();
     out.routing_enabled = s.value("routing/enabled", false).toBool();
     out.routing_mode = s.value("routing/mode", "tunnel_ru").toString();
     out.routing_cache_path = s.value("routing/cache_path", defaultRoutingCachePath()).toString();
@@ -43,6 +45,8 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("ui/theme_mode", cfg.theme_mode);
     s.setValue("ui/language", cfg.language);
     s.setValue("vpn/auto_connect_on_start", cfg.auto_connect_on_start);
+    s.setValue("ui/show_logs_panel", cfg.show_logs_panel);
+    s.setValue("ui/show_traffic_in_status", cfg.show_traffic_in_status);
     s.setValue("routing/enabled", cfg.routing_enabled);
     s.setValue("routing/mode", cfg.routing_mode);
     s.setValue("routing/cache_path", cfg.routing_cache_path);

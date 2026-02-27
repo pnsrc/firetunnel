@@ -19,6 +19,8 @@ public:
     QString logPath() const;
     QString themeMode() const;
     bool autoConnectOnStart() const;
+    bool showLogsPanel() const;
+    bool showTrafficInStatus() const;
     bool routingEnabled() const;
     QString routingMode() const;
     QString routingSourceUrl() const;
@@ -27,6 +29,8 @@ public:
 private:
     QCheckBox *m_saveLogsCheck = nullptr;
     QComboBox *m_logLevelCombo = nullptr;
+    QCheckBox *m_showLogsPanelCheck = nullptr;
+    QCheckBox *m_showTrafficCheck = nullptr;
     QComboBox *m_themeModeCombo = nullptr;
     QLineEdit *m_logPathEdit = nullptr;
     QCheckBox *m_autoConnectCheck = nullptr;
