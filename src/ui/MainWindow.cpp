@@ -28,6 +28,8 @@
 #include <QPalette>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QPointer>
+#include <QToolButton>
 #include <QStatusBar>
 #include <QStyle>
 #include <QStyleHints>
@@ -515,11 +517,12 @@ private:
         auto *logHeader = new QHBoxLayout();
         logHeader->setContentsMargins(0, 0, 0, 0);
         logHeader->addStretch();
-        auto *hideLogsBtn = new QToolButton(m_logBox);
-        hideLogsBtn->setText("×");
-        hideLogsBtn->setToolTip(tr("Hide logs"));
-        hideLogsBtn->setAutoRaise(true);
-        logHeader->addWidget(hideLogsBtn);
+        m_hideLogsBtn = new QToolButton(m_logBox);
+        m_hideLogsBtn->setObjectName("hideLogsButton");
+        m_hideLogsBtn->setText("×");
+        m_hideLogsBtn->setToolTip(tr("Hide logs"));
+        m_hideLogsBtn->setAutoRaise(true);
+        logHeader->addWidget(m_hideLogsBtn);
         logLayout->addLayout(logHeader);
         m_logView = new QTextEdit(m_logBox);
         m_logView->setReadOnly(true);
@@ -607,20 +610,23 @@ private:
     }
 
     void setupLogic() {
-        connect(m_toggleLogsAction, &QAction::toggled, this, [this](bool on) {
+        auto syncLogsVisibility = [this](bool on) {
             m_logBox->setVisible(on);
             m_appSettings.show_logs_panel = on;
             saveAppSettings(m_appSettings);
             applyLanguage(m_currentLang);
-        });
+        };
 
-        // close button in logs header
-        connect(findChild<QToolButton *>(), &QToolButton::clicked, this, [this]() {
-            m_logBox->setVisible(false);
-            if (m_toggleLogsAction) m_toggleLogsAction->setChecked(false);
-            m_appSettings.show_logs_panel = false;
-            saveAppSettings(m_appSettings);
-        });
+        connect(m_toggleLogsAction, &QAction::toggled, this, syncLogsVisibility);
+
+        if (m_hideLogsBtn) {
+            connect(m_hideLogsBtn, &QToolButton::clicked, this, [this, syncLogsVisibility]() {
+                if (m_toggleLogsAction) {
+                    m_toggleLogsAction->setChecked(false);
+                }
+                syncLogsVisibility(false);
+            });
+        }
 
         connect(m_langEnAction, &QAction::triggered, this, [this]() {
             applyLanguage("en");
