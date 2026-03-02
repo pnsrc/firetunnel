@@ -384,13 +384,15 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
         setState(m_everConnected ? State::Reconnecting : State::Connecting);
         break;
     case ag::VPN_SS_RECOVERING:
-        setState(State::Reconnecting);
+        setState(m_everConnected ? State::Reconnecting : State::Connecting);
         break;
     case ag::VPN_SS_WAITING_RECOVERY:
         // The core VPN library handles recovery internally via its own FSM
         // (WAITING_RECOVERY -> RECOVERING -> CONNECTED). We just reflect
         // the state in the UI and let the core do its job.
-        setState(State::Reconnecting);
+        // If we haven't connected yet (e.g. initial ping failed, core fell
+        // into recovery), show "Connecting" instead of "Reconnecting".
+        setState(m_everConnected ? State::Reconnecting : State::Connecting);
         break;
     case ag::VPN_SS_WAITING_FOR_NETWORK:
         // Network connectivity lost — show a distinct state so the user
@@ -398,8 +400,10 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
         setState(State::WaitingForNetwork);
         break;
     case ag::VPN_SS_DISCONNECTED:
-        // The core has given up on recovery (fatal error or exhausted attempts).
-        // Only now do we attempt a fresh Qt-level reconnect.
+        // With VPN_CRP_FALL_INTO_RECOVERY the core only reaches DISCONNECTED
+        // on fatal errors (auth failure, cert error, location unavailable).
+        // Schedule a Qt-level reconnect anyway, which will create a fresh
+        // client and reload the config.
         if (!m_stopRequested) {
             scheduleReconnect(QStringLiteral("core disconnected"));
         }
