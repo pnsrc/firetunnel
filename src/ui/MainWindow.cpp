@@ -64,11 +64,16 @@
 #include <unistd.h>
 #endif
 
+#include <QDesktopServices>
+#include <QProcess>
+#include <QTemporaryFile>
+
 #include "AppSettings.h"
 #include "AppUiUtils.h"
 #include "ConfigInspector.h"
 #include "ConfigStore.h"
 #include "SettingsDialog.h"
+#include "UpdateChecker.h"
 #include "qt_trusttunnel_client.h"
 
 static ag::LogLevel parseLogLevel(const QString &level) {
@@ -448,6 +453,8 @@ private:
         m_importDeeplinkAction = appMenu->addAction("Import Deeplink");
         m_createConfigAction = appMenu->addAction("Create Config");
         appMenu->addSeparator();
+        m_checkUpdateAction = appMenu->addAction("Check for Updates...");
+        appMenu->addSeparator();
         m_quitAction = appMenu->addAction("Quit");
 
         m_viewMenu = menuBar()->addMenu("View");
@@ -672,6 +679,31 @@ private:
         });
         connect(m_createConfigAction, &QAction::triggered, this, [this]() {
             createConfigFromTemplate();
+        });
+
+        // --- Auto-updater ---
+        m_updateChecker = new UpdateChecker(
+            QStringLiteral("pnsrc/TrustTunnelClient"),
+            QStringLiteral(FIRETUNNEL_VERSION),
+            this);
+
+        connect(m_checkUpdateAction, &QAction::triggered, this, [this]() {
+            statusBar()->showMessage(tr("Checking for updates..."), 3000);
+            m_updateChecker->checkNow();
+        });
+
+        connect(m_updateChecker, &UpdateChecker::updateAvailable, this,
+                [this](const UpdateChecker::ReleaseInfo &info) {
+            showUpdateDialog(info);
+        });
+        connect(m_updateChecker, &UpdateChecker::noUpdateAvailable, this,
+                [this](const QString &msg) {
+            log(tr("Update check: %1").arg(msg));
+        });
+
+        // Check for updates 3 seconds after startup (non-blocking)
+        QTimer::singleShot(3000, this, [this]() {
+            m_updateChecker->checkNow();
         });
 
         connect(m_addConfigButton, &QPushButton::clicked, this, [this]() {
@@ -956,6 +988,7 @@ private:
         if (m_importDeeplinkAction) m_importDeeplinkAction->setText(ru ? "Импорт Deeplink" : "Import Deeplink");
         if (m_createConfigAction) m_createConfigAction->setText(ru ? "Создать конфиг" : "Create Config");
         if (m_settingsMenuAction) m_settingsMenuAction->setText(ru ? "Открыть настройки" : "Open Settings");
+        if (m_checkUpdateAction) m_checkUpdateAction->setText(ru ? "Проверить обновления..." : "Check for Updates...");
         if (m_quitAction) m_quitAction->setText(ru ? "Выход" : "Quit");
         if (m_toggleLogsAction) {
             m_toggleLogsAction->setText(m_toggleLogsAction->isChecked() ? (ru ? "Скрыть логи" : "Hide Logs")
@@ -1156,6 +1189,116 @@ private:
         }
     }
 
+    void showUpdateDialog(const UpdateChecker::ReleaseInfo &info) {
+        const bool ru = (m_currentLang == "ru");
+        const QString title = ru ? "Доступно обновление" : "Update Available";
+        const QString text = ru
+            ? QString("Доступна новая версия <b>%1</b> (текущая: <b>%2</b>).<br><br>"
+                      "<b>Что нового:</b><br>%3")
+                  .arg(info.version, QStringLiteral(FIRETUNNEL_VERSION),
+                       info.body.toHtmlEscaped().replace("\n", "<br>"))
+            : QString("A new version <b>%1</b> is available (current: <b>%2</b>).<br><br>"
+                      "<b>Release notes:</b><br>%3")
+                  .arg(info.version, QStringLiteral(FIRETUNNEL_VERSION),
+                       info.body.toHtmlEscaped().replace("\n", "<br>"));
+
+        QMessageBox box(this);
+        box.setWindowTitle(title);
+        box.setTextFormat(Qt::RichText);
+        box.setText(text);
+        box.setIcon(QMessageBox::Information);
+
+#ifdef _WIN32
+        QPushButton *downloadBtn = nullptr;
+        if (!info.installerUrl.isEmpty()) {
+            downloadBtn = box.addButton(ru ? "Скачать и установить" : "Download && Install", QMessageBox::AcceptRole);
+        }
+#endif
+        auto *openPageBtn = box.addButton(ru ? "Открыть страницу" : "Open Release Page", QMessageBox::ActionRole);
+        box.addButton(ru ? "Позже" : "Later", QMessageBox::RejectRole);
+        box.exec();
+
+#ifdef _WIN32
+        if (downloadBtn && box.clickedButton() == downloadBtn) {
+            downloadAndInstallUpdate(info);
+            return;
+        }
+#endif
+        if (box.clickedButton() == openPageBtn) {
+            QDesktopServices::openUrl(QUrl(info.htmlUrl));
+        }
+    }
+
+#ifdef _WIN32
+    void downloadAndInstallUpdate(const UpdateChecker::ReleaseInfo &info) {
+        const bool ru = (m_currentLang == "ru");
+        log(tr("Downloading update %1...").arg(info.version));
+
+        auto *progress = new QProgressDialog(
+            ru ? "Загрузка обновления..." : "Downloading update...",
+            ru ? "Отмена" : "Cancel", 0, 100, this);
+        progress->setWindowModality(Qt::WindowModal);
+        progress->setMinimumDuration(0);
+        progress->setValue(0);
+
+        auto *nam = new QNetworkAccessManager(this);
+        QNetworkRequest req(info.installerUrl);
+        req.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("TrustTunnel-Qt/%1").arg(QStringLiteral(FIRETUNNEL_VERSION)));
+        req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+        QNetworkReply *reply = nam->get(req);
+
+        connect(reply, &QNetworkReply::downloadProgress, progress,
+                [progress](qint64 received, qint64 total) {
+            if (total > 0) {
+                progress->setMaximum(static_cast<int>(total));
+                progress->setValue(static_cast<int>(received));
+            }
+        });
+        connect(progress, &QProgressDialog::canceled, reply, &QNetworkReply::abort);
+        connect(reply, &QNetworkReply::finished, this,
+                [this, reply, progress, nam, info, ru]() {
+            progress->close();
+            progress->deleteLater();
+            reply->deleteLater();
+            nam->deleteLater();
+
+            if (reply->error() != QNetworkReply::NoError) {
+                log(tr("Download failed: %1").arg(reply->errorString()));
+                QMessageBox::warning(this,
+                    ru ? "Ошибка загрузки" : "Download Error",
+                    reply->errorString());
+                return;
+            }
+
+            // Save to temp dir
+            const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+            const QString installerPath = QDir(tempDir).filePath(info.assetName);
+            QFile file(installerPath);
+            if (!file.open(QIODevice::WriteOnly)) {
+                log(tr("Cannot write installer to %1").arg(installerPath));
+                return;
+            }
+            file.write(reply->readAll());
+            file.close();
+
+            log(tr("Update downloaded to %1, launching installer...").arg(installerPath));
+
+            // Launch NSIS installer and quit the app
+            // /S = silent mode is optional; without it the user sees the wizard
+            if (QProcess::startDetached(installerPath, {})) {
+                m_forceExit = true;
+                qApp->quit();
+            } else {
+                QMessageBox::warning(this,
+                    ru ? "Ошибка" : "Error",
+                    ru ? "Не удалось запустить установщик" : "Failed to launch installer");
+            }
+        });
+    }
+#endif
+
 private:
     bool m_forceExit = false;
 
@@ -1184,8 +1327,10 @@ private:
     QAction *m_importDeeplinkAction = nullptr;
     QAction *m_createConfigAction = nullptr;
     QAction *m_settingsMenuAction = nullptr;
+    QAction *m_checkUpdateAction = nullptr;
     QAction *m_quitAction = nullptr;
     QAction *m_toggleLogsAction = nullptr;
+    UpdateChecker *m_updateChecker = nullptr;
     QAction *m_langEnAction = nullptr;
     QAction *m_langRuAction = nullptr;
     QString m_currentLang = "en";
