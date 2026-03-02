@@ -14,6 +14,7 @@ class QStackedWidget;
 class QListWidgetItem;
 
 class SettingsDialog : public QDialog {
+    Q_OBJECT
 public:
     explicit SettingsDialog(const QString &lang, const AppSettings &settings, QWidget *parent = nullptr);
 
@@ -33,6 +34,18 @@ public:
     QString routingSourceUrl() const;
     QString routingCachePath() const;
 
+    /// Returns true if user requested a tunnel adapter reinstall.
+    bool reinstallTunnelsRequested() const;
+    /// Returns true if user requested a DNS flush.
+    bool flushDnsRequested() const;
+    /// Returns true if user requested SSL session cache clear.
+    bool clearSslCacheRequested() const;
+    /// Returns true if user requested a full settings reset.
+    bool resetSettingsRequested() const;
+
+signals:
+    void advancedAction(const QString &action);
+
 private:
     QCheckBox *m_saveLogsCheck = nullptr;
     QComboBox *m_logLevelCombo = nullptr;
@@ -50,6 +63,11 @@ private:
     QRadioButton *m_routingBypassRadio = nullptr;
     QLineEdit *m_routingUrlEdit = nullptr;
     QLineEdit *m_routingCacheEdit = nullptr;
+
+    bool m_reinstallTunnels = false;
+    bool m_flushDns = false;
+    bool m_clearSslCache = false;
+    bool m_resetSettings = false;
 
     QListWidget *m_navList = nullptr;
     QStackedWidget *m_stack = nullptr;

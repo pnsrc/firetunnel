@@ -5,10 +5,12 @@
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QStackedWidget>
@@ -191,6 +193,89 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     routingLayout->addRow(ru ? "Файл кеша:" : "Cache file:", cacheRow);
     addNavItem(ru ? "Маршрутизация" : "Routing", routingPage, QIcon::fromTheme("network-workgroup"));
 
+    // ── Advanced settings tab ─────────────────────────────
+    auto *advancedPage = new QWidget(this);
+    auto *advancedLayout = new QVBoxLayout(advancedPage);
+
+    auto *tunnelGroup = new QGroupBox(ru ? "Сетевые адаптеры" : "Network Adapters", advancedPage);
+    auto *tunnelGroupLayout = new QVBoxLayout(tunnelGroup);
+    auto *reinstallBtn = new QPushButton(ru ? "Переустановить туннели" : "Reinstall Tunnel Adapters", tunnelGroup);
+    reinstallBtn->setToolTip(ru
+            ? "Удаляет все виртуальные сетевые адаптеры (WinTUN) и пересоздаёт их при следующем подключении."
+            : "Removes all virtual network adapters (WinTUN) and recreates them on next connection.");
+    auto *reinstallNote = new QLabel(
+            ru ? "<i>Если VPN не подключается — попробуйте переустановить адаптеры.</i>"
+               : "<i>If VPN fails to connect, try reinstalling the adapters.</i>",
+            tunnelGroup);
+    reinstallNote->setWordWrap(true);
+    tunnelGroupLayout->addWidget(reinstallBtn);
+    tunnelGroupLayout->addWidget(reinstallNote);
+    advancedLayout->addWidget(tunnelGroup);
+
+    auto *dnsGroup = new QGroupBox("DNS", advancedPage);
+    auto *dnsGroupLayout = new QVBoxLayout(dnsGroup);
+    auto *flushDnsBtn = new QPushButton(ru ? "Сбросить DNS-кеш" : "Flush DNS Cache", dnsGroup);
+    flushDnsBtn->setToolTip(ru
+            ? "Запускает очистку системного DNS-кеша (ipconfig /flushdns на Windows, dscacheutil -flushcache на macOS)."
+            : "Runs system DNS cache flush (ipconfig /flushdns on Windows, dscacheutil -flushcache on macOS).");
+    dnsGroupLayout->addWidget(flushDnsBtn);
+    advancedLayout->addWidget(dnsGroup);
+
+    auto *cacheGroup = new QGroupBox(ru ? "Кеш и данные" : "Cache & Data", advancedPage);
+    auto *cacheGroupLayout = new QVBoxLayout(cacheGroup);
+    auto *clearSslBtn = new QPushButton(ru ? "Очистить кеш SSL-сессий" : "Clear SSL Session Cache", cacheGroup);
+    clearSslBtn->setToolTip(ru
+            ? "Удаляет сохранённые TLS-сессии. Может помочь при проблемах с подключением."
+            : "Deletes saved TLS sessions. May help with connection issues.");
+    auto *resetSettingsBtn = new QPushButton(ru ? "Сбросить все настройки" : "Reset All Settings", cacheGroup);
+    resetSettingsBtn->setStyleSheet("QPushButton { color: #cc3333; }");
+    resetSettingsBtn->setToolTip(ru
+            ? "Возвращает все настройки приложения к значениям по умолчанию."
+            : "Resets all application settings to their defaults.");
+    cacheGroupLayout->addWidget(clearSslBtn);
+    cacheGroupLayout->addWidget(resetSettingsBtn);
+    advancedLayout->addWidget(cacheGroup);
+
+    advancedLayout->addStretch();
+    addNavItem(ru ? "Расширенные" : "Advanced", advancedPage, QIcon::fromTheme("preferences-other"));
+
+    connect(reinstallBtn, &QPushButton::clicked, this, [this, ru]() {
+        auto res = QMessageBox::question(this,
+                ru ? "Переустановка туннелей" : "Reinstall Tunnels",
+                ru ? "Виртуальные адаптеры будут удалены и пересозданы при следующем подключении. Продолжить?"
+                   : "Virtual adapters will be removed and recreated on next connection. Continue?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (res == QMessageBox::Yes) {
+            m_reinstallTunnels = true;
+            emit advancedAction("reinstall_tunnels");
+        }
+    });
+
+    connect(flushDnsBtn, &QPushButton::clicked, this, [this]() {
+        m_flushDns = true;
+        emit advancedAction("flush_dns");
+    });
+
+    connect(clearSslBtn, &QPushButton::clicked, this, [this, ru]() {
+        m_clearSslCache = true;
+        QMessageBox::information(this,
+                ru ? "Кеш SSL" : "SSL Cache",
+                ru ? "Кеш SSL-сессий будет очищен." : "SSL session cache will be cleared.");
+        emit advancedAction("clear_ssl_cache");
+    });
+
+    connect(resetSettingsBtn, &QPushButton::clicked, this, [this, ru]() {
+        auto res = QMessageBox::warning(this,
+                ru ? "Сброс настроек" : "Reset Settings",
+                ru ? "Все настройки приложения будут сброшены к значениям по умолчанию. Это действие нельзя отменить. Продолжить?"
+                   : "All application settings will be reset to defaults. This cannot be undone. Continue?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (res == QMessageBox::Yes) {
+            m_resetSettings = true;
+            accept(); // close dialog, MainWindow will handle reset
+        }
+    });
+
     connect(browseCacheBtn, &QPushButton::clicked, this, [this, ru]() {
         const QString path = QFileDialog::getSaveFileName(
                 this,
@@ -246,3 +331,7 @@ QString SettingsDialog::routingMode() const {
 }
 QString SettingsDialog::routingSourceUrl() const { return m_routingUrlEdit ? m_routingUrlEdit->text().trimmed() : QString(); }
 QString SettingsDialog::routingCachePath() const { return m_routingCacheEdit ? m_routingCacheEdit->text().trimmed() : QString(); }
+bool SettingsDialog::reinstallTunnelsRequested() const { return m_reinstallTunnels; }
+bool SettingsDialog::flushDnsRequested() const { return m_flushDns; }
+bool SettingsDialog::clearSslCacheRequested() const { return m_clearSslCache; }
+bool SettingsDialog::resetSettingsRequested() const { return m_resetSettings; }

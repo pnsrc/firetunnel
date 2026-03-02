@@ -417,6 +417,8 @@ private:
                                      "loglevel = \"info\"\n"
                                      "vpn_mode = \"tunnel\"\n"
                                      "killswitch_enabled = true\n\n"
+                                     "# DNS servers used inside the tunnel\n"
+                                     "dns_upstreams = [\"1.1.1.1\", \"8.8.8.8\"]\n\n"
                                      "[endpoint]\n"
                                      "hostname = \"%1\"\n"
                                      "addresses = [\"%2\"]\n"
@@ -1345,9 +1347,35 @@ private:
 
     void openSettingsDialog() {
         SettingsDialog dlg(m_currentLang, m_appSettings, this);
+
+        // Handle advanced actions in real-time (before dialog is closed)
+        connect(&dlg, &SettingsDialog::advancedAction, this, [this](const QString &action) {
+            const bool ru = (m_currentLang == "ru");
+            if (action == "reinstall_tunnels") {
+                handleReinstallTunnels(ru);
+            } else if (action == "flush_dns") {
+                handleFlushDns(ru);
+            } else if (action == "clear_ssl_cache") {
+                handleClearSslCache(ru);
+            }
+        });
+
         if (dlg.exec() != QDialog::Accepted) {
             return;
         }
+
+        // Handle settings reset
+        if (dlg.resetSettingsRequested()) {
+            m_appSettings = AppSettings{}; // defaults
+            saveAppSettings(m_appSettings);
+            applyTheme();
+            m_vpnClient->setLogLevel(m_appSettings.log_level);
+            if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+            statusBar()->showMessage(
+                    m_currentLang == "ru" ? "Настройки сброшены" : "Settings reset to defaults", 3000);
+            return;
+        }
+
         m_appSettings.save_logs = dlg.saveLogs();
         m_appSettings.log_level = dlg.logLevel();
         const QString newPath = dlg.logPath();
@@ -1372,6 +1400,69 @@ private:
         if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
         if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
         statusBar()->showMessage(tr("Settings saved"), 2000);
+    }
+
+    void handleReinstallTunnels(bool ru) {
+#ifdef _WIN32
+        // Remove all known WinTUN adapters via netsh and pnputil
+        QProcess proc;
+        proc.setProgram("cmd.exe");
+        proc.setArguments({"/c",
+                "netsh interface set interface name=\"FireTunnel Adapter\" admin=disable 2>nul & "
+                "netsh interface set interface name=\"test tunnel\" admin=disable 2>nul & "
+                "pnputil /remove-device /deviceid \"wintun\" /subtree 2>nul"});
+        proc.start();
+        proc.waitForFinished(10000);
+        log(ru ? "Туннельные адаптеры переустановлены. Переподключитесь для применения."
+               : "Tunnel adapters reinstalled. Reconnect to apply.");
+        statusBar()->showMessage(
+                ru ? "Адаптеры переустановлены" : "Adapters reinstalled", 3000);
+#elif defined(__APPLE__)
+        log(ru ? "На macOS utun-адаптеры создаются автоматически. Переподключитесь."
+               : "On macOS utun adapters are created automatically. Reconnect.");
+        statusBar()->showMessage(
+                ru ? "Переподключитесь" : "Reconnect to apply", 3000);
+#else
+        log(ru ? "На Linux tun-адаптеры управляются ядром. Переподключитесь."
+               : "On Linux tun adapters are managed by the kernel. Reconnect.");
+        statusBar()->showMessage(
+                ru ? "Переподключитесь" : "Reconnect to apply", 3000);
+#endif
+    }
+
+    void handleFlushDns(bool ru) {
+        QProcess proc;
+#ifdef _WIN32
+        proc.start("cmd.exe", {"/c", "ipconfig /flushdns"});
+#elif defined(__APPLE__)
+        proc.start("dscacheutil", {"-flushcache"});
+#else
+        proc.start("resolvectl", {"flush-caches"});
+#endif
+        proc.waitForFinished(5000);
+        log(ru ? "DNS-кеш очищен." : "DNS cache flushed.");
+        statusBar()->showMessage(
+                ru ? "DNS-кеш очищен" : "DNS cache flushed", 2000);
+    }
+
+    void handleClearSslCache(bool ru) {
+        // Remove SSL session cache file if it exists
+        const QString sslCachePath = QStandardPaths::writableLocation(
+                QStandardPaths::AppConfigLocation) + "/ssl_sessions";
+        if (QFile::exists(sslCachePath)) {
+            QFile::remove(sslCachePath);
+        }
+        // Also try common locations
+        const QStringList candidates = {
+                QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/ssl_sessions",
+                QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/ssl_session_cache",
+        };
+        for (const QString &path : candidates) {
+            if (QFile::exists(path)) QFile::remove(path);
+        }
+        log(ru ? "Кеш SSL-сессий очищен." : "SSL session cache cleared.");
+        statusBar()->showMessage(
+                ru ? "SSL-кеш очищен" : "SSL cache cleared", 2000);
     }
 };
 
