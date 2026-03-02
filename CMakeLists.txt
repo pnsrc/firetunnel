@@ -96,10 +96,11 @@ set_target_properties(trusttunnel-qt PROPERTIES
 )
 
 if (WIN32 AND MSVC)
-    # Embed UAC manifest: application always requests administrator privileges.
-    target_sources(trusttunnel-qt PRIVATE "${CMAKE_CURRENT_LIST_DIR}/win/trusttunnel-qt.manifest")
-    set_property(TARGET trusttunnel-qt APPEND_STRING PROPERTY LINK_FLAGS
-        " /MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_CURRENT_LIST_DIR}/win/trusttunnel-qt.manifest\"")
+    # Request administrator privileges via UAC at launch (needed for TUN interface).
+    # Using /MANIFESTUAC linker flag directly — avoids conflict with CMake's
+    # auto-generated manifest that defaults to asInvoker.
+    set_property(TARGET trusttunnel-qt APPEND_STRING PROPERTY
+        LINK_FLAGS " /MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
 endif()
 
 if (APPLE)
