@@ -95,6 +95,13 @@ set_target_properties(trusttunnel-qt PROPERTIES
     MACOSX_BUNDLE_ICON_FILE "logo.icns"
 )
 
+if (WIN32 AND MSVC)
+    # Embed UAC manifest: application always requests administrator privileges.
+    target_sources(trusttunnel-qt PRIVATE "${CMAKE_CURRENT_LIST_DIR}/win/trusttunnel-qt.manifest")
+    set_property(TARGET trusttunnel-qt APPEND_STRING PROPERTY LINK_FLAGS
+        " /MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_CURRENT_LIST_DIR}/win/trusttunnel-qt.manifest\"")
+endif()
+
 if (APPLE)
     # Place macOS icon into the bundle Resources dir
     set_source_files_properties(assets/logo.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
