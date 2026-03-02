@@ -1,5 +1,7 @@
 #include "qt_trusttunnel_client.h"
+#include <QApplication>
 #include <QMetaObject>
+#include <QRandomGenerator>
 #include <algorithm>
 #include <chrono>
 #include <toml++/toml.h>
@@ -49,7 +51,23 @@ QtTrustTunnelClient::QtTrustTunnelClient(QObject *parent)
 }
 
 QtTrustTunnelClient::~QtTrustTunnelClient() {
-    disconnectVpn();
+    // Suppress all signal emission during destruction — connected slots may
+    // reference this object which is already being torn down.
+    m_stopRequested = true;
+    m_reconnectTimer.stop();
+    blockSignals(true);
+    teardownClient();
+}
+
+void QtTrustTunnelClient::teardownClient() {
+    if (m_client) {
+        m_client->disconnect();
+    }
+    if (m_networkMonitor) {
+        m_networkMonitor->stop();
+        m_networkMonitor.reset();
+    }
+    m_client.reset();
 }
 
 void QtTrustTunnelClient::setConfig(ag::TrustTunnelConfig config) {
@@ -81,6 +99,7 @@ bool QtTrustTunnelClient::loadConfigFromFile(const QString &path) {
         return false;
     }
 
+    m_lastConfigPath = path;
     setConfig(std::move(*config));
     setState(State::Disconnected);
     return true;
@@ -96,7 +115,8 @@ void QtTrustTunnelClient::setReconnectBoundsMs(int initialDelayMs, int maxDelayM
 }
 
 void QtTrustTunnelClient::connectVpn() {
-    if (m_state == State::Connecting || m_state == State::Connected || m_state == State::Reconnecting) {
+    if (m_state == State::Connecting || m_state == State::Connected
+            || m_state == State::Reconnecting || m_state == State::WaitingForNetwork) {
         return;
     }
 #ifndef _WIN32
@@ -112,7 +132,11 @@ void QtTrustTunnelClient::connectVpn() {
 #endif
     m_stopRequested = false;
     m_reconnectTimer.stop();
-    doConnectAttempt();
+    // Set state immediately so the UI shows "Connecting", then schedule
+    // the heavy work (vpn_open, DNS proxy init, connect) on the next event
+    // loop iteration so the window has a chance to repaint first.
+    setState(State::Connecting);
+    QTimer::singleShot(0, this, &QtTrustTunnelClient::doConnectAttempt);
 }
 
 void QtTrustTunnelClient::doConnectAttempt() {
@@ -120,30 +144,66 @@ void QtTrustTunnelClient::doConnectAttempt() {
         return;
     }
 
-    setState(m_client ? State::Reconnecting : State::Connecting);
+    const bool isReconnect = (m_client != nullptr);
+    // If called from scheduleReconnect, update state (connectVpn already set it).
+    if (m_state != State::Connecting) {
+        setState(isReconnect ? State::Reconnecting : State::Connecting);
+    }
 
     try {
+        // If the client already exists, properly tear down the old VPN session
+        // before reconnecting. Without this, connect_impl() creates a new Vpn
+        // instance via vpn_open() and overwrites the pointer, leaking the
+        // previous session and all its resources.
+        if (isReconnect) {
+            emit connectProgress(tr("Disconnecting previous session..."));
+            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+            m_client->disconnect();
+        }
+
         if (!m_client) {
+            // TrustTunnelConfig is move-only (contains unique_ptr), so we
+            // cannot copy it.  If m_config was already consumed by a previous
+            // client session, reload it from the saved file path.
             if (!m_config.has_value()) {
-                setState(State::Error);
-                emit vpnError(QStringLiteral("TrustTunnel config is not set"));
-                return;
+                if (!m_lastConfigPath.isEmpty()) {
+                    if (!loadConfigFromFile(m_lastConfigPath)) {
+                        // loadConfigFromFile already emits vpnError / sets Error state.
+                        return;
+                    }
+                } else {
+                    setState(State::Error);
+                    emit vpnError(QStringLiteral("TrustTunnel config is not set"));
+                    return;
+                }
             }
+            emit connectProgress(tr("Initializing VPN core..."));
+            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+
             m_client = std::make_unique<ag::TrustTunnelClient>(std::move(*m_config), makeCallbacks());
+            m_config.reset();
+
+            emit connectProgress(tr("Starting network monitor..."));
+            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+
             m_networkMonitor = std::make_unique<ag::AutoNetworkMonitor>(m_client.get());
             if (!m_networkMonitor->start()) {
                 m_networkMonitor.reset();
+                teardownClient();
                 setState(State::Error);
                 emit vpnError(QStringLiteral("Failed to start network monitor"));
                 return;
             }
-            m_config.reset();
         }
+
+        emit connectProgress(tr("Configuring DNS..."));
+        qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
         if (auto dnsErr = m_client->set_system_dns()) {
             const std::string errText = dnsErr->str();
             const QString qErr = QString::fromStdString(errText);
             // DNS setup failure is usually fatal until privileges change; stop auto-retry.
+            teardownClient();
             m_stopRequested = true;
             setState(State::Error);
             emit vpnError(QString("set_system_dns() failed: %1").arg(qErr));
@@ -152,12 +212,17 @@ void QtTrustTunnelClient::doConnectAttempt() {
 
         m_lastConnectAttempt = std::chrono::steady_clock::now();
 
+        emit connectProgress(tr("Establishing tunnel..."));
+        qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+
         if (auto err = m_client->connect(ag::TrustTunnelClient::AutoSetup{})) {
             const std::string errText = err->str();
             QString qErr = QString::fromStdString(errText);
             if (qErr.contains("Failed to create listener", Qt::CaseInsensitive)) {
                 qErr += QStringLiteral(" (likely needs sudo/admin privileges)");
                 // Fatal until privileges/config change: stop reconnect loop.
+                // The core may have started background threads — tear everything down.
+                teardownClient();
                 m_stopRequested = true;
                 setState(State::Error);
                 emit vpnError(QString("connect() failed: %1").arg(qErr));
@@ -176,18 +241,15 @@ void QtTrustTunnelClient::disconnectVpn() {
     m_reconnectTimer.stop();
     setState(State::Disconnecting);
 
-    if (m_client) {
-        m_client->disconnect();
-        if (m_networkMonitor) {
-            m_networkMonitor->stop();
-            m_networkMonitor.reset();
-        }
-        m_client.reset();
-    }
+    teardownClient();
 
+    m_everConnected = false;
     setState(State::Disconnected);
     emit vpnDisconnected();
-    m_stopRequested = false;
+    // NOTE: m_stopRequested is intentionally left TRUE so that any stale
+    // core state-change callbacks still queued (via Qt::QueuedConnection)
+    // are silently discarded by handleCoreStateChanged(). The flag is
+    // reset in connectVpn() when the user initiates a new session.
 }
 
 bool QtTrustTunnelClient::isConnected() const {
@@ -269,9 +331,29 @@ void QtTrustTunnelClient::scheduleReconnect(const QString &reason) {
         return;
     }
 
+    // If the timer is already running, don't restart it — avoids resetting the
+    // countdown and double-incrementing the delay.
+    if (m_reconnectTimer.isActive()) {
+        return;
+    }
+
+    // If the connection was very short-lived (<10s), the issue is likely
+    // persistent — increase the backoff faster to avoid a rapid reconnect loop.
+    auto now = std::chrono::steady_clock::now();
+    auto sinceLastAttempt = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastConnectAttempt).count();
+    if (m_lastConnectAttempt != std::chrono::steady_clock::time_point{} && sinceLastAttempt < 10000) {
+        m_reconnectDelayMs = std::min(m_reconnectDelayMs * 2, m_reconnectMaxMs);
+    }
+
+    // Add jitter (±20%) to avoid thundering-herd reconnects.
+    int jitter = static_cast<int>(m_reconnectDelayMs * 0.2);
+    int jitteredDelay = m_reconnectDelayMs
+            + (jitter > 0 ? QRandomGenerator::global()->bounded(-jitter, jitter + 1) : 0);
+    jitteredDelay = std::max(250, jitteredDelay);
+
     setState(State::Reconnecting);
     emit vpnError(message);
-    m_reconnectTimer.start(m_reconnectDelayMs);
+    m_reconnectTimer.start(jitteredDelay);
     m_reconnectDelayMs = std::min(m_reconnectDelayMs * 2, m_reconnectMaxMs);
 }
 
@@ -291,18 +373,33 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
     switch (state) {
     case ag::VPN_SS_CONNECTED:
         m_reconnectDelayMs = 1000;
+        m_reconnectTimer.stop(); // cancel any pending Qt-level reconnect
+        m_everConnected = true;
         setState(State::Connected);
         emit vpnConnected();
         break;
     case ag::VPN_SS_CONNECTING:
+        // Distinguish initial connect from reconnect: if we have connected
+        // at least once in this session, the core is re-connecting.
+        setState(m_everConnected ? State::Reconnecting : State::Connecting);
+        break;
     case ag::VPN_SS_RECOVERING:
         setState(State::Reconnecting);
         break;
     case ag::VPN_SS_WAITING_RECOVERY:
+        // The core VPN library handles recovery internally via its own FSM
+        // (WAITING_RECOVERY -> RECOVERING -> CONNECTED). We just reflect
+        // the state in the UI and let the core do its job.
+        setState(State::Reconnecting);
+        break;
     case ag::VPN_SS_WAITING_FOR_NETWORK:
-        scheduleReconnect(QStringLiteral("core requested recovery"));
+        // Network connectivity lost — show a distinct state so the user
+        // knows the issue is local (Wi-Fi/ethernet), not server-side.
+        setState(State::WaitingForNetwork);
         break;
     case ag::VPN_SS_DISCONNECTED:
+        // The core has given up on recovery (fatal error or exhausted attempts).
+        // Only now do we attempt a fresh Qt-level reconnect.
         if (!m_stopRequested) {
             scheduleReconnect(QStringLiteral("core disconnected"));
         }

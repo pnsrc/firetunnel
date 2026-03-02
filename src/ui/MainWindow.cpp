@@ -9,6 +9,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -49,6 +50,8 @@
 #include <QWidget>
 #include <QToolButton>
 #include <QtGlobal>
+
+#include <thread>
 
 #include "common/logger.h"
 
@@ -211,25 +214,30 @@ private:
         return false;
     }
 
+    // Download routing list synchronously but process UI events during the
+    // wait so the window remains responsive and the progress dialog animates.
+    // The old implementation used QEventLoop::exec() which re-enters the event
+    // loop — a well-known source of subtle reentrancy bugs. This version
+    // uses a simple poll loop with processEvents() instead.
     bool downloadRoutingList(const QString &url, const QString &targetPath) {
         QNetworkAccessManager mgr;
         QNetworkRequest req(url);
-        QEventLoop loop;
         QNetworkReply *reply = mgr.get(req);
-        QTimer timeout;
-        timeout.setSingleShot(true);
-        timeout.start(8000);
-        connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-        loop.exec();
 
-        if (timeout.isActive()) {
-            timeout.stop();
-        } else {
-            reply->abort();
-            log(tr("Routing download timed out"));
-            reply->deleteLater();
-            return false;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        constexpr int TIMEOUT_MS = 8000;
+
+        while (!reply->isFinished()) {
+            if (elapsed.elapsed() >= TIMEOUT_MS) {
+                reply->abort();
+                log(tr("Routing download timed out"));
+                reply->deleteLater();
+                return false;
+            }
+            // Process GUI events briefly — keeps the progress dialog alive
+            // without re-entering a nested event loop.
+            qApp->processEvents(QEventLoop::AllEvents, 50);
         }
 
         if (reply->error() != QNetworkReply::NoError) {
@@ -645,62 +653,10 @@ private:
             saveAppSettings(m_appSettings);
         });
         connect(m_settingsAction, &QAction::triggered, this, [this]() {
-            SettingsDialog dlg(m_currentLang, m_appSettings, this);
-            if (dlg.exec() == QDialog::Accepted) {
-                m_appSettings.save_logs = dlg.saveLogs();
-                m_appSettings.log_level = dlg.logLevel();
-                const QString newPath = dlg.logPath();
-                if (!newPath.isEmpty()) {
-                    m_appSettings.log_path = newPath;
-                }
-                m_appSettings.theme_mode = dlg.themeMode();
-                m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
-                m_appSettings.notify_on_state = dlg.notifyOnState();
-                m_appSettings.notify_only_errors = dlg.notifyOnlyErrors();
-                m_appSettings.killswitch_enabled = dlg.killswitchEnabled();
-                m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
-                m_appSettings.show_logs_panel = dlg.showLogsPanel();
-                m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
-                m_appSettings.routing_enabled = dlg.routingEnabled();
-                m_appSettings.routing_mode = dlg.routingMode();
-                if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
-                if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
-                m_vpnClient->setLogLevel(m_appSettings.log_level);
-                saveAppSettings(m_appSettings);
-                applyTheme();
-                if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
-                if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
-                statusBar()->showMessage(tr("Settings saved"), 2000);
-            }
+            openSettingsDialog();
         });
         connect(m_settingsMenuAction, &QAction::triggered, this, [this]() {
-            SettingsDialog dlg(m_currentLang, m_appSettings, this);
-            if (dlg.exec() == QDialog::Accepted) {
-                m_appSettings.save_logs = dlg.saveLogs();
-                m_appSettings.log_level = dlg.logLevel();
-                const QString newPath = dlg.logPath();
-                if (!newPath.isEmpty()) {
-                    m_appSettings.log_path = newPath;
-                }
-                m_appSettings.theme_mode = dlg.themeMode();
-                m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
-                m_appSettings.notify_on_state = dlg.notifyOnState();
-                m_appSettings.notify_only_errors = dlg.notifyOnlyErrors();
-                m_appSettings.killswitch_enabled = dlg.killswitchEnabled();
-                m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
-                m_appSettings.show_logs_panel = dlg.showLogsPanel();
-                m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
-                m_appSettings.routing_enabled = dlg.routingEnabled();
-                m_appSettings.routing_mode = dlg.routingMode();
-                if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
-                if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
-                m_vpnClient->setLogLevel(m_appSettings.log_level);
-                saveAppSettings(m_appSettings);
-                applyTheme();
-                if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
-                if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
-                statusBar()->showMessage(tr("Settings saved"), 2000);
-            }
+            openSettingsDialog();
         });
         connect(m_quitAction, &QAction::triggered, this, [this]() {
             m_forceExit = true;
@@ -755,7 +711,17 @@ private:
                 return;
             }
             log(tr("Ping %1 ...").arg(path));
-            log(tr("Ping result: %1").arg(pingConfigFile(path)));
+            m_pingConfigButton->setEnabled(false);
+            // Run ping in a worker thread to avoid blocking the UI for 1.8s.
+            auto *watcher = new QObject(this);
+            std::thread([this, path, watcher]() {
+                const QString result = pingConfigFile(path);
+                QMetaObject::invokeMethod(watcher, [this, result, watcher]() {
+                    log(tr("Ping result: %1").arg(result));
+                    m_pingConfigButton->setEnabled(true);
+                    watcher->deleteLater();
+                }, Qt::QueuedConnection);
+            }).detach();
         });
 
         connect(m_configsList, &QListWidget::itemSelectionChanged, this, [this]() {
@@ -877,6 +843,13 @@ private:
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.start(1500);
                 break;
+            case QtTrustTunnelClient::State::WaitingForNetwork:
+                m_stateLabel->setText(tr("VPN: No Network"));
+                m_connectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(true);
+                m_statsTimer.stop();
+                statusBar()->showMessage(tr("Network connection lost, waiting..."), 4000);
+                break;
             case QtTrustTunnelClient::State::Disconnecting:
                 m_stateLabel->setText(tr("VPN: Disconnecting"));
                 m_connectButton->setEnabled(false);
@@ -886,7 +859,7 @@ private:
             case QtTrustTunnelClient::State::Error:
                 m_stateLabel->setText(tr("VPN: Error"));
                 m_connectButton->setEnabled(true);
-                m_disconnectButton->setEnabled(false);
+                m_disconnectButton->setEnabled(true);
                 m_statsTimer.stop();
                 break;
             case QtTrustTunnelClient::State::Disconnected:
@@ -924,6 +897,10 @@ private:
         });
         connect(m_vpnClient, &QtTrustTunnelClient::connectionInfo, this, [this](const QString &msg) {
             log(tr("Connection: %1").arg(msg));
+        });
+        connect(m_vpnClient, &QtTrustTunnelClient::connectProgress, this, [this](const QString &step) {
+            m_stateLabel->setText(tr("VPN: %1").arg(step));
+            statusBar()->showMessage(step, 3000);
         });
         connect(m_vpnClient, &QtTrustTunnelClient::clientOutput, this, [this](const QString &bytes) {
             bool ok = false;
@@ -986,15 +963,27 @@ private:
         }
 
         const QString text = m_stateLabel->text();
-        if (text.contains("Connecting", Qt::CaseInsensitive)
-                || text.contains("соедин", Qt::CaseInsensitive)) {
-            m_stateLabel->setText(ru ? "VPN: подключение" : "VPN: Connecting");
-        } else if (text.contains("Connected", Qt::CaseInsensitive)
-                || text.contains("подключен", Qt::CaseInsensitive)) {
-            m_stateLabel->setText(ru ? "VPN: подключено" : "VPN: Connected");
+        // Order matters: check "Disconnecting" and "Disconnected" BEFORE "Connected",
+        // because "Disconnected" contains the substring "Connected".
+        if (text.contains("Disconnecting", Qt::CaseInsensitive)
+                || text.contains("отключени", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: отключение" : "VPN: Disconnecting");
+        } else if (text.contains("Disconnected", Qt::CaseInsensitive)
+                || text.contains("отключено", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: отключено" : "VPN: Disconnected");
         } else if (text.contains("Reconnecting", Qt::CaseInsensitive)
                 || text.contains("переподк", Qt::CaseInsensitive)) {
             m_stateLabel->setText(ru ? "VPN: переподключение" : "VPN: Reconnecting");
+        } else if (text.contains("Connecting", Qt::CaseInsensitive)
+                || text.contains("соедин", Qt::CaseInsensitive)
+                || text.contains("подключение", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: подключение" : "VPN: Connecting");
+        } else if (text.contains("No Network", Qt::CaseInsensitive)
+                || text.contains("нет сети", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: нет сети" : "VPN: No Network");
+        } else if (text.contains("Connected", Qt::CaseInsensitive)
+                || text.contains("подключен", Qt::CaseInsensitive)) {
+            m_stateLabel->setText(ru ? "VPN: подключено" : "VPN: Connected");
         } else if (text.contains("Error", Qt::CaseInsensitive)
                 || text.contains("ошиб", Qt::CaseInsensitive)) {
             m_stateLabel->setText(ru ? "VPN: ошибка" : "VPN: Error");
@@ -1045,6 +1034,19 @@ private:
             if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
                 f.write(chunk);
             }
+        }
+        // Cap the log view to prevent unbounded memory growth.
+        // QTextEdit stores a rich-text document internally; thousands of
+        // appended lines will consume hundreds of megabytes of RAM.
+        static constexpr int MAX_LOG_BLOCKS = 5000;
+        QTextDocument *doc = m_logView->document();
+        if (doc->blockCount() > MAX_LOG_BLOCKS) {
+            QTextCursor trimCursor(doc);
+            trimCursor.movePosition(QTextCursor::Start);
+            // Remove the oldest 20% of lines in one operation
+            const int removeCount = MAX_LOG_BLOCKS / 5;
+            trimCursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor, removeCount);
+            trimCursor.removeSelectedText();
         }
         m_logView->moveCursor(QTextCursor::End);
         m_logView->insertPlainText(QString::fromLocal8Bit(chunk));
@@ -1195,6 +1197,37 @@ private:
     QTimer m_statsTimer;
     QtTrustTunnelClient *m_vpnClient = nullptr;
     AppSettings m_appSettings;
+
+    void openSettingsDialog() {
+        SettingsDialog dlg(m_currentLang, m_appSettings, this);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        m_appSettings.save_logs = dlg.saveLogs();
+        m_appSettings.log_level = dlg.logLevel();
+        const QString newPath = dlg.logPath();
+        if (!newPath.isEmpty()) {
+            m_appSettings.log_path = newPath;
+        }
+        m_appSettings.theme_mode = dlg.themeMode();
+        m_appSettings.auto_connect_on_start = dlg.autoConnectOnStart();
+        m_appSettings.notify_on_state = dlg.notifyOnState();
+        m_appSettings.notify_only_errors = dlg.notifyOnlyErrors();
+        m_appSettings.killswitch_enabled = dlg.killswitchEnabled();
+        m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
+        m_appSettings.show_logs_panel = dlg.showLogsPanel();
+        m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
+        m_appSettings.routing_enabled = dlg.routingEnabled();
+        m_appSettings.routing_mode = dlg.routingMode();
+        if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
+        if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
+        m_vpnClient->setLogLevel(m_appSettings.log_level);
+        saveAppSettings(m_appSettings);
+        applyTheme();
+        if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+        if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
+        statusBar()->showMessage(tr("Settings saved"), 2000);
+    }
 };
 
 QMainWindow *createMainWindow() {

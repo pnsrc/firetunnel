@@ -31,6 +31,7 @@ public:
         Connecting,
         Connected,
         Reconnecting,
+        WaitingForNetwork,
         Disconnecting,
         Error,
     };
@@ -57,6 +58,7 @@ signals:
     void vpnConnected();
     void vpnDisconnected();
     void vpnError(const QString &msg);
+    void connectProgress(const QString &step);
     void connectionInfo(const QString &msg);
     void clientOutput(const QString &bytes); // bytes in chunk
 
@@ -66,16 +68,19 @@ private:
     void scheduleReconnect(const QString &reason);
     void setState(State s);
     void handleCoreStateChanged(ag::VpnSessionState state);
+    void teardownClient();
 
     std::unique_ptr<ag::TrustTunnelClient> m_client;
     std::unique_ptr<ag::AutoNetworkMonitor> m_networkMonitor;
     std::optional<ag::TrustTunnelConfig> m_config;
+    QString m_lastConfigPath; // stored so we can reload config after disconnect
     std::vector<std::string> m_extraIncludedRoutes;
     std::vector<std::string> m_extraExcludedRoutes;
     QTimer m_reconnectTimer;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;
     bool m_stopRequested = false;
+    bool m_everConnected = false; // true after first successful connect in this session
     int m_reconnectDelayMs = 1000;
     int m_reconnectMaxMs = 30000;
     ag::LogLevel m_logLevel = ag::LOG_LEVEL_INFO;
