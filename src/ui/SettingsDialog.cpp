@@ -11,6 +11,8 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QStackedWidget>
@@ -193,6 +195,89 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     routingLayout->addRow(ru ? "Файл кеша:" : "Cache file:", cacheRow);
     addNavItem(ru ? "Маршрутизация" : "Routing", routingPage, QIcon::fromTheme("network-workgroup"));
 
+    // ── Network tab: Custom DNS, Domain Bypass, Adapter Conflicts ──
+    auto *networkPage = new QWidget(this);
+    auto *networkLayout = new QVBoxLayout(networkPage);
+
+    // --- Custom DNS ---
+    auto *dnsCustomGroup = new QGroupBox(ru ? "Пользовательские DNS" : "Custom DNS Servers", networkPage);
+    auto *dnsCustomLayout = new QVBoxLayout(dnsCustomGroup);
+    m_customDnsCheck = new QCheckBox(ru ? "Использовать свои DNS-серверы" : "Use custom DNS servers", dnsCustomGroup);
+    m_customDnsCheck->setChecked(settings.custom_dns_enabled);
+    m_customDnsEdit = new QPlainTextEdit(dnsCustomGroup);
+    m_customDnsEdit->setPlaceholderText(ru
+            ? "Один DNS-сервер на строку:\n1.1.1.1\n8.8.8.8\ntls://1.1.1.1\nhttps://dns.adguard.com/dns-query"
+            : "One DNS server per line:\n1.1.1.1\n8.8.8.8\ntls://1.1.1.1\nhttps://dns.adguard.com/dns-query");
+    m_customDnsEdit->setMaximumHeight(100);
+    m_customDnsEdit->setPlainText(settings.custom_dns_servers.join('\n'));
+    m_customDnsEdit->setEnabled(settings.custom_dns_enabled);
+    auto *dnsHint = new QLabel(ru
+            ? "<i>Поддерживаемые форматы: 8.8.8.8:53, tcp://8.8.8.8:53, tls://1.1.1.1, "
+              "https://dns.adguard.com/dns-query, quic://dns.adguard.com:8853, sdns://...</i>"
+            : "<i>Supported: 8.8.8.8:53, tcp://8.8.8.8:53, tls://1.1.1.1, "
+              "https://dns.adguard.com/dns-query, quic://dns.adguard.com:8853, sdns://...</i>",
+            dnsCustomGroup);
+    dnsHint->setWordWrap(true);
+    dnsCustomLayout->addWidget(m_customDnsCheck);
+    dnsCustomLayout->addWidget(m_customDnsEdit);
+    dnsCustomLayout->addWidget(dnsHint);
+    connect(m_customDnsCheck, &QCheckBox::toggled, m_customDnsEdit, &QPlainTextEdit::setEnabled);
+    networkLayout->addWidget(dnsCustomGroup);
+
+    // --- Domain bypass rules ---
+    auto *bypassGroup = new QGroupBox(ru ? "Пропуск доменов (bypass)" : "Domain Bypass Rules", networkPage);
+    auto *bypassLayout = new QVBoxLayout(bypassGroup);
+    m_domainBypassCheck = new QCheckBox(ru
+            ? "Включить правила обхода доменов"
+            : "Enable domain bypass rules", bypassGroup);
+    m_domainBypassCheck->setChecked(settings.domain_bypass_enabled);
+    m_domainBypassEdit = new QPlainTextEdit(bypassGroup);
+    m_domainBypassEdit->setPlaceholderText(ru
+            ? "Один домен/маска на строку:\nexample.com\n*.google.com\n192.168.1.0/24\n10.0.0.0/8"
+            : "One domain/mask per line:\nexample.com\n*.google.com\n192.168.1.0/24\n10.0.0.0/8");
+    m_domainBypassEdit->setMaximumHeight(120);
+    m_domainBypassEdit->setPlainText(settings.domain_bypass_rules.join('\n'));
+    m_domainBypassEdit->setEnabled(settings.domain_bypass_enabled);
+    auto *bypassHint = new QLabel(ru
+            ? "<i>Домены и адреса, перечисленные здесь, будут добавлены в исключения (exclusions) конфига. "
+              "Форматы: domain.com, *.domain.com, IP, IP:port, CIDR (IP/mask).</i>"
+            : "<i>Domains and addresses listed here are added to config exclusions. "
+              "Formats: domain.com, *.domain.com, IP, IP:port, CIDR (IP/mask).</i>",
+            bypassGroup);
+    bypassHint->setWordWrap(true);
+    bypassLayout->addWidget(m_domainBypassCheck);
+    bypassLayout->addWidget(m_domainBypassEdit);
+    bypassLayout->addWidget(bypassHint);
+    connect(m_domainBypassCheck, &QCheckBox::toggled, m_domainBypassEdit, &QPlainTextEdit::setEnabled);
+    networkLayout->addWidget(bypassGroup);
+
+    // --- Adapter conflict scanner ---
+    auto *conflictGroup = new QGroupBox(ru ? "Конфликты адаптеров" : "Adapter Conflicts", networkPage);
+    auto *conflictLayout = new QVBoxLayout(conflictGroup);
+    m_scanConflictsCheck = new QCheckBox(ru
+            ? "Сканировать конфликты при подключении"
+            : "Scan for adapter conflicts on connect", conflictGroup);
+    m_scanConflictsCheck->setChecked(settings.scan_adapter_conflicts);
+    auto *conflictHint = new QLabel(ru
+            ? "<i>Перед подключением приложение проверит наличие конфликтующих VPN-адаптеров "
+              "(Radmin VPN, Hamachi, OpenVPN TAP и др.) и предупредит, если они могут мешать.</i>"
+            : "<i>Before connecting, the app checks for conflicting VPN adapters "
+              "(Radmin VPN, Hamachi, OpenVPN TAP, etc.) and warns if they may interfere.</i>",
+            conflictGroup);
+    conflictHint->setWordWrap(true);
+    auto *scanNowBtn = new QPushButton(ru ? "Сканировать сейчас" : "Scan Now", conflictGroup);
+    conflictLayout->addWidget(m_scanConflictsCheck);
+    conflictLayout->addWidget(conflictHint);
+    conflictLayout->addWidget(scanNowBtn);
+    networkLayout->addWidget(conflictGroup);
+
+    connect(scanNowBtn, &QPushButton::clicked, this, [this, ru]() {
+        emit advancedAction("scan_conflicts");
+    });
+
+    networkLayout->addStretch();
+    addNavItem(ru ? "Сеть" : "Network", networkPage, QIcon::fromTheme("network-wired"));
+
     // ── Advanced settings tab ─────────────────────────────
     auto *advancedPage = new QWidget(this);
     auto *advancedLayout = new QVBoxLayout(advancedPage);
@@ -335,3 +420,32 @@ bool SettingsDialog::reinstallTunnelsRequested() const { return m_reinstallTunne
 bool SettingsDialog::flushDnsRequested() const { return m_flushDns; }
 bool SettingsDialog::clearSslCacheRequested() const { return m_clearSslCache; }
 bool SettingsDialog::resetSettingsRequested() const { return m_resetSettings; }
+bool SettingsDialog::customDnsEnabled() const { return m_customDnsCheck && m_customDnsCheck->isChecked(); }
+QStringList SettingsDialog::customDnsServers() const {
+    if (!m_customDnsEdit) return {};
+    const QString text = m_customDnsEdit->toPlainText().trimmed();
+    if (text.isEmpty()) return {};
+    QStringList lines;
+    for (const QString &line : text.split('\n', Qt::SkipEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty() && !trimmed.startsWith('#')) {
+            lines.append(trimmed);
+        }
+    }
+    return lines;
+}
+bool SettingsDialog::domainBypassEnabled() const { return m_domainBypassCheck && m_domainBypassCheck->isChecked(); }
+QStringList SettingsDialog::domainBypassRules() const {
+    if (!m_domainBypassEdit) return {};
+    const QString text = m_domainBypassEdit->toPlainText().trimmed();
+    if (text.isEmpty()) return {};
+    QStringList lines;
+    for (const QString &line : text.split('\n', Qt::SkipEmptyParts)) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty() && !trimmed.startsWith('#')) {
+            lines.append(trimmed);
+        }
+    }
+    return lines;
+}
+bool SettingsDialog::scanAdapterConflicts() const { return m_scanConflictsCheck && m_scanConflictsCheck->isChecked(); }

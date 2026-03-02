@@ -36,6 +36,11 @@ AppSettings loadAppSettings() {
     out.routing_cache_path = s.value("routing/cache_path", defaultRoutingCachePath()).toString();
     out.routing_source_url = s.value("routing/source_url",
             "https://antifilter.download/list/subnet.lst").toString();
+    out.custom_dns_enabled = s.value("dns/custom_enabled", false).toBool();
+    out.custom_dns_servers = s.value("dns/custom_servers", QStringList{"1.1.1.1", "8.8.8.8"}).toStringList();
+    out.domain_bypass_enabled = s.value("bypass/enabled", false).toBool();
+    out.domain_bypass_rules = s.value("bypass/rules", QStringList{}).toStringList();
+    out.scan_adapter_conflicts = s.value("net/scan_adapter_conflicts", true).toBool();
     if (out.log_path.isEmpty()) {
         out.log_path = defaultLogPath();
     }
@@ -61,4 +66,9 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("routing/mode", cfg.routing_mode);
     s.setValue("routing/cache_path", cfg.routing_cache_path);
     s.setValue("routing/source_url", cfg.routing_source_url);
+    s.setValue("dns/custom_enabled", cfg.custom_dns_enabled);
+    s.setValue("dns/custom_servers", cfg.custom_dns_servers);
+    s.setValue("bypass/enabled", cfg.domain_bypass_enabled);
+    s.setValue("bypass/rules", cfg.domain_bypass_rules);
+    s.setValue("net/scan_adapter_conflicts", cfg.scan_adapter_conflicts);
 }

@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QWidget>
 #include <QRadioButton>
+#include <QPlainTextEdit>
 
 #include "AppSettings.h"
 
@@ -34,6 +35,17 @@ public:
     QString routingSourceUrl() const;
     QString routingCachePath() const;
 
+    // Custom DNS
+    bool customDnsEnabled() const;
+    QStringList customDnsServers() const;
+
+    // Domain bypass
+    bool domainBypassEnabled() const;
+    QStringList domainBypassRules() const;
+
+    // Adapter conflicts
+    bool scanAdapterConflicts() const;
+
     /// Returns true if user requested a tunnel adapter reinstall.
     bool reinstallTunnelsRequested() const;
     /// Returns true if user requested a DNS flush.
@@ -63,6 +75,17 @@ private:
     QRadioButton *m_routingBypassRadio = nullptr;
     QLineEdit *m_routingUrlEdit = nullptr;
     QLineEdit *m_routingCacheEdit = nullptr;
+
+    // Custom DNS
+    QCheckBox *m_customDnsCheck = nullptr;
+    QPlainTextEdit *m_customDnsEdit = nullptr;
+
+    // Domain bypass
+    QCheckBox *m_domainBypassCheck = nullptr;
+    QPlainTextEdit *m_domainBypassEdit = nullptr;
+
+    // Adapter conflicts
+    QCheckBox *m_scanConflictsCheck = nullptr;
 
     bool m_reinstallTunnels = false;
     bool m_flushDns = false;

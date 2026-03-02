@@ -52,6 +52,8 @@ public:
     void setLogLevel(const QString &level);
     void setRoutingRules(const std::vector<std::string> &includeRoutes,
             const std::vector<std::string> &excludeRoutes);
+    void setCustomDns(const std::vector<std::string> &dnsServers);
+    void setExtraExclusions(const std::vector<std::string> &exclusions);
 
 signals:
     void stateChanged(QtTrustTunnelClient::State state);
@@ -76,6 +78,8 @@ private:
     QString m_lastConfigPath; // stored so we can reload config after disconnect
     std::vector<std::string> m_extraIncludedRoutes;
     std::vector<std::string> m_extraExcludedRoutes;
+    std::vector<std::string> m_customDns;
+    std::vector<std::string> m_extraExclusions;
     QTimer m_reconnectTimer;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;

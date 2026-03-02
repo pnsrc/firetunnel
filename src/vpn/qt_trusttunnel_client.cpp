@@ -79,6 +79,17 @@ void QtTrustTunnelClient::setConfig(ag::TrustTunnelConfig config) {
         tun.included_routes.insert(tun.included_routes.end(), m_extraIncludedRoutes.begin(), m_extraIncludedRoutes.end());
         tun.excluded_routes.insert(tun.excluded_routes.end(), m_extraExcludedRoutes.begin(), m_extraExcludedRoutes.end());
     }
+    // Apply custom DNS overrides
+    if (!m_customDns.empty()) {
+        m_config->dns_upstreams = m_customDns;
+    }
+    // Append extra exclusions (domain bypass rules)
+    for (const auto &ex : m_extraExclusions) {
+        if (!m_config->exclusions.empty() && m_config->exclusions.back() != ' ') {
+            m_config->exclusions.push_back(' ');
+        }
+        m_config->exclusions.append(ex);
+    }
 }
 
 bool QtTrustTunnelClient::loadConfigFromFile(const QString &path) {
@@ -276,6 +287,25 @@ void QtTrustTunnelClient::setRoutingRules(const std::vector<std::string> &includ
         auto &tun = std::get<ag::TrustTunnelConfig::TunListener>(m_config->listener);
         tun.included_routes.insert(tun.included_routes.end(), m_extraIncludedRoutes.begin(), m_extraIncludedRoutes.end());
         tun.excluded_routes.insert(tun.excluded_routes.end(), m_extraExcludedRoutes.begin(), m_extraExcludedRoutes.end());
+    }
+}
+
+void QtTrustTunnelClient::setCustomDns(const std::vector<std::string> &dnsServers) {
+    m_customDns = dnsServers;
+    if (m_config.has_value() && !m_customDns.empty()) {
+        m_config->dns_upstreams = m_customDns;
+    }
+}
+
+void QtTrustTunnelClient::setExtraExclusions(const std::vector<std::string> &exclusions) {
+    m_extraExclusions = exclusions;
+    if (m_config.has_value()) {
+        for (const auto &ex : m_extraExclusions) {
+            if (!m_config->exclusions.empty() && m_config->exclusions.back() != ' ') {
+                m_config->exclusions.push_back(' ');
+            }
+            m_config->exclusions.append(ex);
+        }
     }
 }
 

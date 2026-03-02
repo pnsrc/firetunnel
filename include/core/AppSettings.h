@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 struct AppSettings {
     bool save_logs = true;
@@ -20,6 +21,18 @@ struct AppSettings {
     QString routing_mode = "tunnel_ru"; // tunnel_ru | bypass_ru
     QString routing_cache_path = "";
     QString routing_source_url = "https://antifilter.download/list/subnet.lst";
+
+    // Custom DNS servers (override config dns_upstreams when non-empty)
+    bool custom_dns_enabled = false;
+    QStringList custom_dns_servers = {"1.1.1.1", "8.8.8.8"};
+
+    // Domain bypass rules: domains matching these patterns skip the VPN tunnel.
+    // Supports wildcards: *.example.com, exact: example.com
+    bool domain_bypass_enabled = false;
+    QStringList domain_bypass_rules;
+
+    // Adapter conflict scanning
+    bool scan_adapter_conflicts = true;
 };
 
 AppSettings loadAppSettings();

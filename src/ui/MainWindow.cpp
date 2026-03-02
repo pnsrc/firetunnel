@@ -840,6 +840,40 @@ private:
                 return;
             }
             m_vpnClient->setRoutingRules(includeRoutes, excludeRoutes);
+
+            // Apply custom DNS if enabled
+            if (m_appSettings.custom_dns_enabled && !m_appSettings.custom_dns_servers.isEmpty()) {
+                std::vector<std::string> dnsServers;
+                for (const auto &s : m_appSettings.custom_dns_servers) {
+                    if (!s.trimmed().isEmpty()) {
+                        dnsServers.push_back(s.trimmed().toStdString());
+                    }
+                }
+                if (!dnsServers.empty()) {
+                    m_vpnClient->setCustomDns(dnsServers);
+                    log(tr("Custom DNS applied: %1 server(s)").arg(dnsServers.size()));
+                }
+            }
+
+            // Apply domain bypass exclusions if enabled
+            if (m_appSettings.domain_bypass_enabled && !m_appSettings.domain_bypass_rules.isEmpty()) {
+                std::vector<std::string> exclusions;
+                for (const auto &rule : m_appSettings.domain_bypass_rules) {
+                    if (!rule.trimmed().isEmpty()) {
+                        exclusions.push_back(rule.trimmed().toStdString());
+                    }
+                }
+                if (!exclusions.empty()) {
+                    m_vpnClient->setExtraExclusions(exclusions);
+                    log(tr("Domain bypass: %1 rule(s) applied").arg(exclusions.size()));
+                }
+            }
+
+            // Scan for adapter conflicts if enabled
+            if (m_appSettings.scan_adapter_conflicts) {
+                handleScanConflictsBeforeConnect();
+            }
+
             log(tr("Connecting VPN..."));
             statusBar()->showMessage(tr("Connecting..."), 1500);
             m_vpnClient->connectVpn();
@@ -1357,6 +1391,8 @@ private:
                 handleFlushDns(ru);
             } else if (action == "clear_ssl_cache") {
                 handleClearSslCache(ru);
+            } else if (action == "scan_conflicts") {
+                handleScanConflicts(ru);
             }
         });
 
@@ -1394,6 +1430,11 @@ private:
         m_appSettings.routing_mode = dlg.routingMode();
         if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
         if (!dlg.routingCachePath().isEmpty()) m_appSettings.routing_cache_path = dlg.routingCachePath();
+        m_appSettings.custom_dns_enabled = dlg.customDnsEnabled();
+        m_appSettings.custom_dns_servers = dlg.customDnsServers();
+        m_appSettings.domain_bypass_enabled = dlg.domainBypassEnabled();
+        m_appSettings.domain_bypass_rules = dlg.domainBypassRules();
+        m_appSettings.scan_adapter_conflicts = dlg.scanAdapterConflicts();
         m_vpnClient->setLogLevel(m_appSettings.log_level);
         saveAppSettings(m_appSettings);
         applyTheme();
@@ -1463,6 +1504,112 @@ private:
         log(ru ? "Кеш SSL-сессий очищен." : "SSL session cache cleared.");
         statusBar()->showMessage(
                 ru ? "SSL-кеш очищен" : "SSL cache cleared", 2000);
+    }
+
+    void handleScanConflicts(bool ru) {
+        QStringList conflicts;
+        const QStringList knownConflicts = {
+            "Radmin VPN", "Hamachi", "TAP-Windows", "OpenVPN",
+            "WireGuard", "ZeroTier", "Hyper-V Virtual", "VMware",
+            "VirtualBox Host-Only"
+        };
+#ifdef _WIN32
+        QProcess proc;
+        proc.start("powershell", {"-NoProfile", "-Command",
+            "Get-NetAdapter | Select-Object -ExpandProperty Name"});
+        proc.waitForFinished(10000);
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList adapters = output.split('\n', Qt::SkipEmptyParts);
+        for (const QString &adapter : adapters) {
+            const QString trimmed = adapter.trimmed();
+            for (const QString &known : knownConflicts) {
+                if (trimmed.contains(known, Qt::CaseInsensitive)) {
+                    conflicts.append(trimmed);
+                    break;
+                }
+            }
+        }
+#elif defined(__APPLE__)
+        QProcess proc;
+        proc.start("ifconfig", {"-l"});
+        proc.waitForFinished(5000);
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList ifaces = output.trimmed().split(' ', Qt::SkipEmptyParts);
+        // On macOS, check for known VPN-related utun/tap interfaces
+        for (const QString &iface : ifaces) {
+            if (iface.startsWith("tap") || iface.startsWith("tun")
+                || iface.startsWith("feth") || iface.startsWith("vmnet")) {
+                conflicts.append(iface);
+            }
+        }
+#else
+        QProcess proc;
+        proc.start("ip", {"link", "show"});
+        proc.waitForFinished(5000);
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
+        for (const QString &line : lines) {
+            for (const QString &known : knownConflicts) {
+                if (line.contains(known, Qt::CaseInsensitive)) {
+                    conflicts.append(line.trimmed());
+                    break;
+                }
+            }
+        }
+#endif
+        if (conflicts.isEmpty()) {
+            const QString msg = ru
+                ? "Конфликтующие адаптеры не обнаружены."
+                : "No conflicting adapters found.";
+            log(msg);
+            QMessageBox::information(this, ru ? "Сканирование" : "Adapter Scan", msg);
+        } else {
+            const QString msg = (ru
+                ? "Обнаружены потенциально конфликтующие адаптеры:\n\n"
+                : "Potentially conflicting adapters found:\n\n")
+                + conflicts.join("\n")
+                + (ru ? "\n\nРекомендуется отключить их перед подключением VPN."
+                      : "\n\nConsider disabling them before connecting.");
+            log(msg);
+            QMessageBox::warning(this, ru ? "Конфликты" : "Adapter Conflicts", msg);
+        }
+        statusBar()->showMessage(
+            ru ? QString("Найдено конфликтов: %1").arg(conflicts.size())
+               : QString("Conflicts found: %1").arg(conflicts.size()), 3000);
+    }
+
+    void handleScanConflictsBeforeConnect() {
+        // Silent scan before connect — only warn if conflicts found
+        const bool ru = (m_currentLang == "ru");
+#ifdef _WIN32
+        QProcess proc;
+        proc.start("powershell", {"-NoProfile", "-Command",
+            "Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Select-Object -ExpandProperty Name"});
+        proc.waitForFinished(10000);
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList adapters = output.split('\n', Qt::SkipEmptyParts);
+        const QStringList knownConflicts = {
+            "Radmin VPN", "Hamachi", "TAP-Windows", "OpenVPN",
+            "WireGuard", "ZeroTier"
+        };
+        QStringList conflicts;
+        for (const QString &adapter : adapters) {
+            const QString trimmed = adapter.trimmed();
+            for (const QString &known : knownConflicts) {
+                if (trimmed.contains(known, Qt::CaseInsensitive)) {
+                    conflicts.append(trimmed);
+                    break;
+                }
+            }
+        }
+        if (!conflicts.isEmpty()) {
+            log(ru ? QString("⚠ Обнаружены конфликтующие адаптеры: %1").arg(conflicts.join(", "))
+                   : QString("⚠ Conflicting adapters detected: %1").arg(conflicts.join(", ")));
+        }
+#else
+        // On non-Windows, skip silent scan (less common conflict issues)
+        Q_UNUSED(ru);
+#endif
     }
 };
 
