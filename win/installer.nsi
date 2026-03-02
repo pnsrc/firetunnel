@@ -33,8 +33,8 @@ SetCompressor /SOLID lzma
 ;--------------------------------
 ; Interface
 
-!define MUI_ICON   "assets\logo.ico"
-!define MUI_UNICON "assets\logo.ico"
+!define MUI_ICON   "..\assets\logo.ico"
+!define MUI_UNICON "..\assets\logo.ico"
 !define MUI_ABORTWARNING
 
 ;--------------------------------
