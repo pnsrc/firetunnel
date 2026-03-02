@@ -10,7 +10,7 @@ class QNetworkReply;
  * Checks for application updates via GitHub Releases API.
  *
  * Usage:
- *   auto *checker = new UpdateChecker("pnsrc/TrustTunnelClient", "0.6b", this);
+ *   auto *checker = new UpdateChecker("pnsrc/TrustTunnelClient", "0.7", this);
  *   connect(checker, &UpdateChecker::updateAvailable, ...);
  *   checker->checkNow();
  */

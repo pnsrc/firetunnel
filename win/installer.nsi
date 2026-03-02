@@ -15,7 +15,7 @@
 
 ; Version can be overridden from the command line: makensis /DPRODUCT_VERSION=0.3.0
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "0.6b"
+  !define PRODUCT_VERSION "0.7"
 !endif
 
 ; Build dir containing compiled binaries — passed via /DBUILD_DIR=...
