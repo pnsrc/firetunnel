@@ -15,7 +15,7 @@
 
 ; Version can be overridden from the command line: makensis /DPRODUCT_VERSION=0.3.0
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "0.3.0"
+  !define PRODUCT_VERSION "0.5b"
 !endif
 
 ; Build dir containing compiled binaries — passed via /DBUILD_DIR=...
@@ -111,6 +111,11 @@ Section "Install"
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "EstimatedSize" $0
 
+  ; Windows Firewall: allow the VPN client through (both TCP and UDP)
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${PRODUCT_NAME}"'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="${PRODUCT_NAME}" dir=in action=allow program="$INSTDIR\${PRODUCT_EXE}" enable=yes profile=any'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="${PRODUCT_NAME}" dir=out action=allow program="$INSTDIR\${PRODUCT_EXE}" enable=yes profile=any'
+
 SectionEnd
 
 ;--------------------------------
@@ -137,6 +142,9 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
   RMDir  "$SMPROGRAMS\${PRODUCT_NAME}"
   Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+
+  ; Remove Windows Firewall rules
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${PRODUCT_NAME}"'
 
   ; Remove registry keys
   DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
