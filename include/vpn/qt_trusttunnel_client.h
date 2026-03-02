@@ -5,6 +5,7 @@
 #include <memory>
 #include <functional>
 #include <optional>
+#include <chrono>
 
 #ifdef _WIN32
 // Windows SDK doesn't define POSIX iovec; define a minimal version before vpn.h uses it.
@@ -78,4 +79,5 @@ private:
     int m_reconnectDelayMs = 1000;
     int m_reconnectMaxMs = 30000;
     ag::LogLevel m_logLevel = ag::LOG_LEVEL_INFO;
+    std::chrono::steady_clock::time_point m_lastConnectAttempt{};
 };
