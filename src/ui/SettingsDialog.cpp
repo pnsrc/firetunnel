@@ -276,7 +276,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     conflictLayout->addWidget(scanNowBtn);
     networkLayout->addWidget(conflictGroup);
 
-    connect(scanNowBtn, &QPushButton::clicked, this, [this, ru]() {
+    connect(scanNowBtn, &QPushButton::clicked, this, [this]() {
         emit advancedAction("scan_conflicts");
     });
 
@@ -384,8 +384,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
                     if (ok) {
                         emit advancedAction("refresh_adapters");
                         // Re-populate the tree in-place
-                        QTimer::singleShot(500, this, [this, ru]() {
-                            // re-scan via the same lambda — use signal
+                        QTimer::singleShot(500, this, [this]() {
                             emit advancedAction("rescan_adapters_ui");
                         });
                     }
