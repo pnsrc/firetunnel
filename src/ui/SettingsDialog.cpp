@@ -367,10 +367,10 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
                     if (wasEnabled) {
                         auto res = QMessageBox::question(this,
                             ru ? "Деактивация адаптера" : "Deactivate Adapter",
-                            (ru ? "Деактивировать адаптер \'%1\'?\n\n"
+                            QString(ru ? "Деактивировать адаптер '%1'?\n\n"
                                   "Данный адаптер может конфликтовать с адаптером от FireTunnel, "
                                   "по этому его рекомендуется деактивировать."
-                                : "Deactivate adapter \'%1\'?\n\n"
+                                : "Deactivate adapter '%1'?\n\n"
                                   "This adapter may conflict with the FireTunnel adapter "
                                   "and it is recommended to deactivate it.")
                                 .arg(adapterName),
