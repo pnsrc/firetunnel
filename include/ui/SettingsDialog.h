@@ -4,8 +4,10 @@
 #include <QWidget>
 #include <QRadioButton>
 #include <QPlainTextEdit>
+#include <QTreeWidget>
 
 #include "AppSettings.h"
+#include "NetworkAdapterManager.h"
 
 class QCheckBox;
 class QComboBox;
@@ -45,6 +47,10 @@ public:
 
     // Adapter conflicts
     bool scanAdapterConflicts() const;
+
+    // SSH / P2P bypass
+    bool sshBypassEnabled() const;
+    bool p2pBypassEnabled() const;
 
     /// Returns true if user requested a tunnel adapter reinstall.
     bool reinstallTunnelsRequested() const;
@@ -86,6 +92,14 @@ private:
 
     // Adapter conflicts
     QCheckBox *m_scanConflictsCheck = nullptr;
+
+    // Adapter discovery (Advanced tab)
+    QTreeWidget *m_adapterTree = nullptr;
+    NetworkAdapterManager m_adapterManager;
+
+    // SSH / P2P bypass
+    QCheckBox *m_sshBypassCheck = nullptr;
+    QCheckBox *m_p2pBypassCheck = nullptr;
 
     bool m_reinstallTunnels = false;
     bool m_flushDns = false;

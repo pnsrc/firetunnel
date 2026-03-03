@@ -33,6 +33,11 @@ struct AppSettings {
 
     // Adapter conflict scanning
     bool scan_adapter_conflicts = true;
+
+    // SSH / P2P traffic bypass: when enabled, SSH (port 22) and P2P
+    // (BitTorrent, etc.) traffic bypasses the VPN tunnel.
+    bool ssh_bypass_enabled = false;
+    bool p2p_bypass_enabled = false;
 };
 
 AppSettings loadAppSettings();

@@ -1435,6 +1435,8 @@ private:
         m_appSettings.domain_bypass_enabled = dlg.domainBypassEnabled();
         m_appSettings.domain_bypass_rules = dlg.domainBypassRules();
         m_appSettings.scan_adapter_conflicts = dlg.scanAdapterConflicts();
+        m_appSettings.ssh_bypass_enabled = dlg.sshBypassEnabled();
+        m_appSettings.p2p_bypass_enabled = dlg.p2pBypassEnabled();
         m_vpnClient->setLogLevel(m_appSettings.log_level);
         saveAppSettings(m_appSettings);
         applyTheme();

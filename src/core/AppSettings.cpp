@@ -41,6 +41,8 @@ AppSettings loadAppSettings() {
     out.domain_bypass_enabled = s.value("bypass/enabled", false).toBool();
     out.domain_bypass_rules = s.value("bypass/rules", QStringList{}).toStringList();
     out.scan_adapter_conflicts = s.value("net/scan_adapter_conflicts", true).toBool();
+    out.ssh_bypass_enabled = s.value("bypass/ssh_enabled", false).toBool();
+    out.p2p_bypass_enabled = s.value("bypass/p2p_enabled", false).toBool();
     if (out.log_path.isEmpty()) {
         out.log_path = defaultLogPath();
     }
@@ -71,4 +73,6 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("bypass/enabled", cfg.domain_bypass_enabled);
     s.setValue("bypass/rules", cfg.domain_bypass_rules);
     s.setValue("net/scan_adapter_conflicts", cfg.scan_adapter_conflicts);
+    s.setValue("bypass/ssh_enabled", cfg.ssh_bypass_enabled);
+    s.setValue("bypass/p2p_enabled", cfg.p2p_bypass_enabled);
 }

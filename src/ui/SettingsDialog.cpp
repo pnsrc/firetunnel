@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHeaderView>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
@@ -17,11 +18,15 @@
 #include <QRadioButton>
 #include <QStackedWidget>
 #include <QTextBrowser>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 #include "ConfigInspector.h"
 #include "ConfigStore.h"
+#include "NetworkAdapterManager.h"
 #include "vpn/trusttunnel/version.h"
+
+#include <QTimer>
 
 #ifndef FIRETUNNEL_VERSION
 #define FIRETUNNEL_VERSION "dev"
@@ -297,6 +302,142 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     tunnelGroupLayout->addWidget(reinstallNote);
     advancedLayout->addWidget(tunnelGroup);
 
+    // ── Adapter discovery & deactivation (Windows) ──
+    auto *adapterGroup = new QGroupBox(ru ? "Обнаруженные VPN-адаптеры" : "Detected VPN Adapters", advancedPage);
+    auto *adapterGroupLayout = new QVBoxLayout(adapterGroup);
+    auto *adapterHint = new QLabel(
+            ru ? "<i>Сторонние VPN-адаптеры (Radmin VPN, Hamachi, WireGuard и др.) могут конфликтовать "
+                 "с адаптером от FireTunnel. Рекомендуется деактивировать их перед подключением.</i>"
+               : "<i>Third-party VPN adapters (Radmin VPN, Hamachi, WireGuard, etc.) may conflict "
+                 "with the FireTunnel adapter. It is recommended to deactivate them before connecting.</i>",
+            adapterGroup);
+    adapterHint->setWordWrap(true);
+    adapterGroupLayout->addWidget(adapterHint);
+
+    m_adapterTree = new QTreeWidget(adapterGroup);
+    m_adapterTree->setHeaderLabels({
+        ru ? "Адаптер" : "Adapter",
+        ru ? "Описание" : "Description",
+        ru ? "Статус" : "Status",
+        ""  // action column
+    });
+    m_adapterTree->setRootIsDecorated(false);
+    m_adapterTree->setAlternatingRowColors(true);
+    m_adapterTree->setMinimumHeight(140);
+    m_adapterTree->header()->setStretchLastSection(false);
+    m_adapterTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_adapterTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_adapterTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_adapterTree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    adapterGroupLayout->addWidget(m_adapterTree);
+
+    auto *rescanAdaptersBtn = new QPushButton(ru ? "Обновить список" : "Refresh List", adapterGroup);
+    adapterGroupLayout->addWidget(rescanAdaptersBtn);
+    advancedLayout->addWidget(adapterGroup);
+
+    // Lambda to populate the adapter tree
+    auto populateAdapters = [this, ru]() {
+        m_adapterTree->clear();
+        const auto adapters = m_adapterManager.scanAdapters();
+        for (const auto &info : adapters) {
+            auto *item = new QTreeWidgetItem(m_adapterTree);
+            item->setText(0, info.name);
+            item->setText(1, info.description);
+            item->setText(2, info.enabled ? (ru ? "Активен" : "Enabled")
+                                          : (ru ? "Отключён" : "Disabled"));
+            if (info.isOurs) {
+                // Our adapter — just show info, no deactivation button
+                item->setForeground(0, QColor("#22aa22"));
+                item->setText(3, "FireTunnel");
+            } else {
+                // Third-party adapter — add Deactivate/Activate button
+                auto *btn = new QPushButton(
+                        info.enabled ? (ru ? "Деактивировать" : "Deactivate")
+                                     : (ru ? "Активировать" : "Activate"),
+                        m_adapterTree);
+                if (info.enabled) {
+                    btn->setStyleSheet("QPushButton { color: #cc3333; }");
+                } else {
+                    btn->setStyleSheet("QPushButton { color: #22aa22; }");
+                }
+                const QString adapterName = info.name;
+                const bool wasEnabled = info.enabled;
+                connect(btn, &QPushButton::clicked, this, [this, adapterName, wasEnabled, ru]() {
+                    bool ok = false;
+                    if (wasEnabled) {
+                        auto res = QMessageBox::question(this,
+                            ru ? "Деактивация адаптера" : "Deactivate Adapter",
+                            (ru ? "Деактивировать адаптер \'%1\'?\n\n"
+                                  "Данный адаптер может конфликтовать с адаптером от FireTunnel, "
+                                  "по этому его рекомендуется деактивировать."
+                                : "Deactivate adapter \'%1\'?\n\n"
+                                  "This adapter may conflict with the FireTunnel adapter "
+                                  "and it is recommended to deactivate it.")
+                                .arg(adapterName),
+                            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+                        if (res == QMessageBox::Yes) {
+                            ok = m_adapterManager.disableAdapter(adapterName);
+                        }
+                    } else {
+                        ok = m_adapterManager.enableAdapter(adapterName);
+                    }
+                    if (ok) {
+                        emit advancedAction("refresh_adapters");
+                        // Re-populate the tree in-place
+                        QTimer::singleShot(500, this, [this, ru]() {
+                            // re-scan via the same lambda — use signal
+                            emit advancedAction("rescan_adapters_ui");
+                        });
+                    }
+                });
+                m_adapterTree->setItemWidget(item, 3, btn);
+                item->setForeground(0, QColor("#cc3333"));
+            }
+        }
+        if (adapters.isEmpty()) {
+            auto *emptyItem = new QTreeWidgetItem(m_adapterTree);
+            emptyItem->setText(0, ru ? "Адаптеры не обнаружены" : "No adapters found");
+            emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsSelectable);
+        }
+    };
+
+    // Initial population
+    populateAdapters();
+
+    connect(rescanAdaptersBtn, &QPushButton::clicked, this, populateAdapters);
+    // Handle re-scan after deactivation
+    connect(this, &SettingsDialog::advancedAction, this, [populateAdapters](const QString &action) {
+        if (action == "rescan_adapters_ui") {
+            populateAdapters();
+        }
+    });
+
+    // ── SSH / P2P Bypass ──
+    auto *bypassTrafficGroup = new QGroupBox(ru ? "Обход трафика" : "Traffic Bypass", advancedPage);
+    auto *bypassTrafficLayout = new QVBoxLayout(bypassTrafficGroup);
+    auto *bypassTrafficHint = new QLabel(
+            ru ? "<i>Выберите типы трафика, которые должны идти мимо VPN-туннеля (напрямую).</i>"
+               : "<i>Select traffic types that should bypass the VPN tunnel (go direct).</i>",
+            bypassTrafficGroup);
+    bypassTrafficHint->setWordWrap(true);
+    bypassTrafficLayout->addWidget(bypassTrafficHint);
+
+    m_sshBypassCheck = new QCheckBox(ru ? "Обходить SSH-трафик (порт 22)" : "Bypass SSH traffic (port 22)", bypassTrafficGroup);
+    m_sshBypassCheck->setChecked(settings.ssh_bypass_enabled);
+    m_sshBypassCheck->setToolTip(ru
+            ? "SSH-соединения (порт 22) будут идти напрямую, минуя VPN-туннель."
+            : "SSH connections (port 22) will go direct, bypassing the VPN tunnel.");
+    bypassTrafficLayout->addWidget(m_sshBypassCheck);
+
+    m_p2pBypassCheck = new QCheckBox(ru ? "Обходить P2P-трафик (BitTorrent и др.)" : "Bypass P2P traffic (BitTorrent, etc.)", bypassTrafficGroup);
+    m_p2pBypassCheck->setChecked(settings.p2p_bypass_enabled);
+    m_p2pBypassCheck->setToolTip(ru
+            ? "P2P-трафик (BitTorrent, DHT и др.) будет идти напрямую, минуя VPN-туннель."
+            : "P2P traffic (BitTorrent, DHT, etc.) will go direct, bypassing the VPN tunnel.");
+    bypassTrafficLayout->addWidget(m_p2pBypassCheck);
+
+    advancedLayout->addWidget(bypassTrafficGroup);
+
     auto *dnsGroup = new QGroupBox("DNS", advancedPage);
     auto *dnsGroupLayout = new QVBoxLayout(dnsGroup);
     auto *flushDnsBtn = new QPushButton(ru ? "Сбросить DNS-кеш" : "Flush DNS Cache", dnsGroup);
@@ -449,3 +590,5 @@ QStringList SettingsDialog::domainBypassRules() const {
     return lines;
 }
 bool SettingsDialog::scanAdapterConflicts() const { return m_scanConflictsCheck && m_scanConflictsCheck->isChecked(); }
+bool SettingsDialog::sshBypassEnabled() const { return m_sshBypassCheck && m_sshBypassCheck->isChecked(); }
+bool SettingsDialog::p2pBypassEnabled() const { return m_p2pBypassCheck && m_p2pBypassCheck->isChecked(); }
