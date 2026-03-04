@@ -400,6 +400,8 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_showLogsPanelCheck->setChecked(settings.show_logs_panel);
     m_showTrafficCheck = new QCheckBox(ru ? "Показывать трафик в статусе" : "Show traffic in status bar", logsPage);
     m_showTrafficCheck->setChecked(settings.show_traffic_in_status);
+    m_showTrafficGraphCheck = new QCheckBox(ru ? "Показывать график трафика" : "Show traffic graph", logsPage);
+    m_showTrafficGraphCheck->setChecked(settings.show_traffic_graph);
     auto *openLogBtn = new QPushButton(ru ? "Открыть файл логов" : "Open log file", logsPage);
     connect(openLogBtn, &QPushButton::clicked, this, [this, ru]() {
         const QString path = m_logPathEdit->text().trimmed();
@@ -425,6 +427,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     logsLayout->addRow(openLogBtn);
     logsLayout->addRow(m_showLogsPanelCheck);
     logsLayout->addRow(m_showTrafficCheck);
+    logsLayout->addRow(m_showTrafficGraphCheck);
     addNavItem(ru ? "Логирование" : "Logging", logsPage, QIcon(":/icons/logging.svg"));
 
     // ════════════════════════════════════════════════════════════════
@@ -615,6 +618,7 @@ QString SettingsDialog::themeMode() const { return m_themeModeCombo ? m_themeMod
 bool SettingsDialog::autoConnectOnStart() const { return m_autoConnectCheck && m_autoConnectCheck->isChecked(); }
 bool SettingsDialog::showLogsPanel() const { return m_showLogsPanelCheck && m_showLogsPanelCheck->isChecked(); }
 bool SettingsDialog::showTrafficInStatus() const { return m_showTrafficCheck && m_showTrafficCheck->isChecked(); }
+bool SettingsDialog::showTrafficGraph() const { return m_showTrafficGraphCheck && m_showTrafficGraphCheck->isChecked(); }
 bool SettingsDialog::notifyOnState() const { return m_notifyOnStateCheck && m_notifyOnStateCheck->isChecked(); }
 bool SettingsDialog::notifyOnlyErrors() const { return m_notifyErrorsOnlyCheck && m_notifyErrorsOnlyCheck->isChecked(); }
 bool SettingsDialog::killswitchEnabled() const { return m_killswitchCheck && m_killswitchCheck->isChecked(); }

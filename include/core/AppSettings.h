@@ -12,6 +12,7 @@ struct AppSettings {
     bool auto_connect_on_start = false;
     bool show_logs_panel = true;
     bool show_traffic_in_status = true;
+    bool show_traffic_graph = true;
     bool notify_on_state = true;
     bool notify_only_errors = false;
     bool killswitch_enabled = false;

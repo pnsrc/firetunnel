@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 #include "ConfigWizard.h"
+#include "ConnectionRing.h"
+#include "TrafficGraph.h"
 
 #include <QApplication>
 #include <QAction>
@@ -29,6 +31,9 @@
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QPalette>
+#include <QPainter>
+#include <QPixmap>
+#include <QSvgRenderer>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QPointer>
@@ -37,6 +42,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QStyleHints>
+#include <QStackedWidget>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
@@ -395,8 +401,10 @@ private:
 
     void setupUi() {
         setWindowTitle("FireTunnel");
-        resize(980, 650);
+        resize(460, 720);
         setWindowIcon(makeAppIcon());
+
+        // ── Menu bar (minimal) ──
         m_appMenu = menuBar()->addMenu("App");
         auto *appMenu = m_appMenu;
         m_settingsAction = appMenu->addAction("Settings");
@@ -425,77 +433,141 @@ private:
         langGroup->addAction(m_langRuAction);
         m_langEnAction->setChecked(true);
 
+        // ── Central root ──
         auto *root = new QWidget(this);
-        auto *layout = new QVBoxLayout(root);
-        layout->setContentsMargins(16, 16, 16, 16);
-        layout->setSpacing(12);
+        auto *rootLayout = new QVBoxLayout(root);
+        rootLayout->setContentsMargins(0, 0, 0, 0);
+        rootLayout->setSpacing(0);
 
-        auto *topRow = new QHBoxLayout();
-        topRow->setSpacing(12);
+        // ── Stacked widget (3 pages) ──
+        m_stack = new QStackedWidget(root);
 
-        m_configsBox = new QGroupBox(root);
-        m_configsBox->setObjectName("configsBox");
-        auto *configsLayout = new QVBoxLayout(m_configsBox);
-        m_configsList = new QListWidget(m_configsBox);
-        auto *configsButtons = new QHBoxLayout();
-        m_addConfigButton = new QPushButton(m_configsBox);
-        m_removeConfigButton = new QPushButton(m_configsBox);
-        m_pingConfigButton = new QPushButton(m_configsBox);
-        configsButtons->addWidget(m_addConfigButton);
-        configsButtons->addWidget(m_removeConfigButton);
-        configsButtons->addWidget(m_pingConfigButton);
-        configsLayout->addWidget(m_configsList);
-        configsLayout->addLayout(configsButtons);
+        // ════════════════════════════════════════════
+        // PAGE 0: HOME — ring + server info + graph
+        // ════════════════════════════════════════════
+        auto *homePage = new QWidget();
+        auto *homeLayout = new QVBoxLayout(homePage);
+        homeLayout->setContentsMargins(20, 8, 20, 0);
+        homeLayout->setSpacing(0);
 
-        m_controlBox = new QGroupBox(root);
-        m_controlBox->setObjectName("controlBox");
-        auto *controlLayout = new QVBoxLayout(m_controlBox);
-        controlLayout->setSpacing(10);
-        auto *pathRow = new QHBoxLayout();
-        m_configPath = new QLineEdit(m_controlBox);
-        m_browseButton = new QPushButton(m_controlBox);
-        m_viewConfigButton = new QPushButton(m_controlBox);
-        m_connectButton = new QPushButton(m_controlBox);
-        m_disconnectButton = new QPushButton(m_controlBox);
-        m_stateLabel = new QLabel(m_controlBox);
-        m_stateLabel->setObjectName("stateLabel");
-        m_stateLabel->setAlignment(Qt::AlignCenter);
-        m_stateLabel->setText(tr("VPN: Disconnected"));
-        m_disconnectButton->setEnabled(false);
+        homeLayout->addStretch(2);
+
+        // Connection ring
+        m_ring = new ConnectionRing(homePage);
+        homeLayout->addWidget(m_ring, 0, Qt::AlignHCenter);
+
+        homeLayout->addStretch(1);
+
+        // Server info card
+        auto *serverCard = new QWidget(homePage);
+        serverCard->setObjectName("serverCard");
+        auto *cardLayout = new QVBoxLayout(serverCard);
+        cardLayout->setContentsMargins(20, 14, 20, 14);
+        cardLayout->setSpacing(4);
+
+        m_serverNameLabel = new QLabel("—", serverCard);
+        m_serverNameLabel->setObjectName("serverNameLabel");
+        m_serverNameLabel->setAlignment(Qt::AlignCenter);
+
+        m_serverDetailLabel = new QLabel("", serverCard);
+        m_serverDetailLabel->setObjectName("serverDetailLabel");
+        m_serverDetailLabel->setAlignment(Qt::AlignCenter);
+
+        // Connect / Disconnect buttons (compact, inside card)
+        auto *btnRow = new QHBoxLayout();
+        btnRow->setSpacing(10);
+        m_connectButton = new QPushButton(homePage);
+        m_disconnectButton = new QPushButton(homePage);
         m_connectButton->setObjectName("connectButton");
         m_disconnectButton->setObjectName("disconnectButton");
         m_connectButton->setMinimumHeight(42);
         m_disconnectButton->setMinimumHeight(42);
+        m_disconnectButton->setEnabled(false);
+        btnRow->addWidget(m_connectButton);
+        btnRow->addWidget(m_disconnectButton);
 
+        cardLayout->addWidget(m_serverNameLabel);
+        cardLayout->addWidget(m_serverDetailLabel);
+        cardLayout->addSpacing(8);
+        cardLayout->addLayout(btnRow);
+
+        homeLayout->addWidget(serverCard);
+        homeLayout->addSpacing(6);
+
+        // Hidden state label (kept for logic compatibility)
+        m_stateLabel = new QLabel(homePage);
+        m_stateLabel->setObjectName("stateLabel");
+        m_stateLabel->setVisible(false);
+        m_stateLabel->setText(tr("VPN: Disconnected"));
+        homeLayout->addWidget(m_stateLabel);
+
+        // Traffic graph
+        m_trafficGraph = new TrafficGraph(homePage);
+        m_trafficGraph->setFixedHeight(70);
+        m_trafficGraph->setVisible(m_appSettings.show_traffic_graph);
+        homeLayout->addWidget(m_trafficGraph);
+
+        m_stack->addWidget(homePage);
+
+        // ════════════════════════════════════════════
+        // PAGE 1: CONFIGS
+        // ════════════════════════════════════════════
+        auto *configsPage = new QWidget();
+        auto *configsPageLayout = new QVBoxLayout(configsPage);
+        configsPageLayout->setContentsMargins(16, 12, 16, 12);
+        configsPageLayout->setSpacing(10);
+
+        auto *configsTitleLabel = new QLabel(configsPage);
+        configsTitleLabel->setObjectName("pageTitle");
+        configsTitleLabel->setText("Configs");
+        m_configsPageTitle = configsTitleLabel;
+        configsPageLayout->addWidget(configsTitleLabel);
+
+        m_configsList = new QListWidget(configsPage);
+        configsPageLayout->addWidget(m_configsList, 1);
+
+        auto *pathRow = new QHBoxLayout();
+        m_configPath = new QLineEdit(configsPage);
         m_configPath->setPlaceholderText("Path to TrustTunnel TOML config");
-        pathRow->addWidget(m_configPath);
+        m_browseButton = new QPushButton(configsPage);
+        m_viewConfigButton = new QPushButton(configsPage);
+        pathRow->addWidget(m_configPath, 1);
         pathRow->addWidget(m_browseButton);
         pathRow->addWidget(m_viewConfigButton);
-        auto *actionRow = new QHBoxLayout();
-        actionRow->setSpacing(10);
-        actionRow->addWidget(m_connectButton);
-        actionRow->addWidget(m_disconnectButton);
-        controlLayout->addLayout(pathRow);
-        controlLayout->addLayout(actionRow);
-        controlLayout->addWidget(m_stateLabel);
+        configsPageLayout->addLayout(pathRow);
 
-        topRow->addWidget(m_configsBox, 2);
-        topRow->addWidget(m_controlBox, 3);
+        auto *configsBtnRow = new QHBoxLayout();
+        configsBtnRow->setSpacing(8);
+        m_addConfigButton = new QPushButton(configsPage);
+        m_removeConfigButton = new QPushButton(configsPage);
+        m_pingConfigButton = new QPushButton(configsPage);
+        configsBtnRow->addWidget(m_addConfigButton);
+        configsBtnRow->addWidget(m_removeConfigButton);
+        configsBtnRow->addWidget(m_pingConfigButton);
+        configsPageLayout->addLayout(configsBtnRow);
 
-        m_logBox = new QGroupBox(root);
-        m_logBox->setObjectName("logBox");
-        auto *logLayout = new QVBoxLayout(m_logBox);
-        auto *logHeader = new QHBoxLayout();
-        logHeader->setContentsMargins(0, 0, 0, 0);
-        logHeader->addStretch();
-        m_hideLogsBtn = new QToolButton(m_logBox);
-        m_hideLogsBtn->setObjectName("hideLogsButton");
-        m_hideLogsBtn->setText("×");
-        m_hideLogsBtn->setToolTip(tr("Hide logs"));
-        m_hideLogsBtn->setAutoRaise(true);
-        logHeader->addWidget(m_hideLogsBtn);
-        logLayout->addLayout(logHeader);
-        m_logView = new QTextEdit(m_logBox);
+        // Hidden group boxes (for compatibility with applyLanguage)
+        m_configsBox = new QGroupBox(configsPage);
+        m_configsBox->setVisible(false);
+        m_controlBox = new QGroupBox(configsPage);
+        m_controlBox->setVisible(false);
+
+        m_stack->addWidget(configsPage);
+
+        // ════════════════════════════════════════════
+        // PAGE 2: LOGS
+        // ════════════════════════════════════════════
+        auto *logsPage = new QWidget();
+        auto *logsLayout = new QVBoxLayout(logsPage);
+        logsLayout->setContentsMargins(16, 12, 16, 12);
+        logsLayout->setSpacing(10);
+
+        auto *logsTitleLabel = new QLabel("Logs", logsPage);
+        logsTitleLabel->setObjectName("pageTitle");
+        m_logsPageTitle = logsTitleLabel;
+        logsLayout->addWidget(logsTitleLabel);
+
+        m_logView = new QTextEdit(logsPage);
         m_logView->setReadOnly(true);
         m_logView->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         m_logView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -514,55 +586,85 @@ private:
             menu->exec(m_logView->mapToGlobal(pos));
             menu->deleteLater();
         });
-        logLayout->addWidget(m_logView);
+        logsLayout->addWidget(m_logView, 1);
 
-        layout->addLayout(topRow);
-        layout->addWidget(m_logBox, 1);
+        m_logBox = new QGroupBox(logsPage);
+        m_logBox->setVisible(false);   // compatibility stub
+
+        m_stack->addWidget(logsPage);
+
+        rootLayout->addWidget(m_stack, 1);
+
+        // ════════════════════════════════════════════
+        // BOTTOM NAVIGATION BAR
+        // ════════════════════════════════════════════
+        auto *navBar = new QWidget(root);
+        navBar->setObjectName("navBar");
+        navBar->setFixedHeight(56);
+        auto *navLayout = new QHBoxLayout(navBar);
+        navLayout->setContentsMargins(0, 0, 0, 0);
+        navLayout->setSpacing(0);
+
+        auto makeNavBtn = [&](const QString &iconPath, const QString &label) -> QPushButton* {
+            auto *btn = new QPushButton(navBar);
+            btn->setIcon(QIcon(iconPath));
+            btn->setIconSize(QSize(22, 22));
+            btn->setText(label);
+            btn->setObjectName("navButton");
+            btn->setFlat(true);
+            btn->setCheckable(true);
+            btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+            navLayout->addWidget(btn);
+            return btn;
+        };
+
+        m_navHome    = makeNavBtn(":/icons/home.svg",     "Home");
+        m_navConfigs = makeNavBtn(":/icons/configs.svg",  "Configs");
+        m_navLogs    = makeNavBtn(":/icons/log.svg",      "Logs");
+        m_navSettings= makeNavBtn(":/icons/settings.svg", "Settings");
+        m_navHome->setChecked(true);
+
+        auto *navGroup = new QActionGroup(this);  // for exclusive toggle
+        Q_UNUSED(navGroup);
+
+        auto switchPage = [this](int idx) {
+            m_stack->setCurrentIndex(idx);
+            m_navHome->setChecked(idx == 0);
+            m_navConfigs->setChecked(idx == 1);
+            m_navLogs->setChecked(idx == 2);
+            m_navSettings->setChecked(false);
+        };
+
+        connect(m_navHome,    &QPushButton::clicked, this, [switchPage]() { switchPage(0); });
+        connect(m_navConfigs, &QPushButton::clicked, this, [switchPage]() { switchPage(1); });
+        connect(m_navLogs,    &QPushButton::clicked, this, [switchPage]() { switchPage(2); });
+        connect(m_navSettings, &QPushButton::clicked, this, [this, switchPage]() {
+            switchPage(m_stack->currentIndex()); // keep current page
+            openSettingsDialog();
+        });
+
+        rootLayout->addWidget(navBar);
 
         setCentralWidget(root);
-        setStyleSheet(
-                "QMainWindow{background:#f4f6fb;}"
-                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;"
-                "font-weight:600;color:#1f2a44;}"
-                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
-                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
-                "QPushButton:hover{background:#e5ecff;}"
-                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
-                "QPushButton#connectButton:hover{background:#1465df;}"
-                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
-                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
-                "QToolButton{border:none;padding:4px;border-radius:6px;}"
-                "QToolButton:hover{background:#e8edf7;}"
-                "QMenuBar{background:#f4f6fb;}"
-                "QStatusBar{background:#f4f6fb;color:#415170;}"
-        );
-
         statusBar()->showMessage("Ready");
 
+        // ── VPN Client ──
         m_vpnClient = new QtTrustTunnelClient(this);
         m_vpnClient->setLogLevel(m_appSettings.log_level);
 
-        // Forward core logs to UI with current log level threshold
         const ag::LogLevel uiLogLevel = parseLogLevel(m_appSettings.log_level);
         ag::Logger::set_callback([this, uiLogLevel](ag::LogLevel level, std::string_view msg) {
-            if (level > uiLogLevel) {
-                return;
-            }
+            if (level > uiLogLevel) return;
             const QString line = QString::fromUtf8(msg.data(), static_cast<int>(msg.size()));
             QMetaObject::invokeMethod(this, [this, line]() {
                 log(QStringLiteral("[core] ") + line);
             }, Qt::QueuedConnection);
         });
 
-        m_addConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
-        m_removeConfigButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-        m_pingConfigButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-        m_browseButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
-        m_viewConfigButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-        m_connectButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-        m_disconnectButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+        // Icon assignments (will be properly colored in recolorIcons via applyTheme)
+        // Remove wrong icon assignments — config buttons use text only
 
+        // ── System tray ──
         if (QSystemTrayIcon::isSystemTrayAvailable()) {
             auto *menu = new QMenu(this);
             auto *openAction = menu->addAction("Open");
@@ -574,32 +676,26 @@ private:
             m_tray->show();
 
             connect(openAction, &QAction::triggered, this, [this]() {
-                showNormal();
-                raise();
-                activateWindow();
+                showNormal(); raise(); activateWindow();
             });
             connect(exitAction, &QAction::triggered, this, [this]() {
                 m_forceExit = true;
-                if (m_vpnClient) {
-                    m_vpnClient->disconnectVpn();
-                }
+                if (m_vpnClient) m_vpnClient->disconnectVpn();
                 qApp->quit();
             });
             connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
                 if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-                    showNormal();
-                    raise();
-                    activateWindow();
+                    showNormal(); raise(); activateWindow();
                 }
             });
-
             qApp->setQuitOnLastWindowClosed(false);
         }
+
+        m_hideLogsBtn = nullptr; // not used in new layout
     }
 
     void setupLogic() {
         auto syncLogsVisibility = [this](bool on) {
-            m_logBox->setVisible(on);
             m_appSettings.show_logs_panel = on;
             saveAppSettings(m_appSettings);
             applyLanguage(m_currentLang);
@@ -607,14 +703,15 @@ private:
 
         connect(m_toggleLogsAction, &QAction::toggled, this, syncLogsVisibility);
 
-        if (m_hideLogsBtn) {
-            connect(m_hideLogsBtn, &QToolButton::clicked, this, [this, syncLogsVisibility]() {
-                if (m_toggleLogsAction) {
-                    m_toggleLogsAction->setChecked(false);
-                }
-                syncLogsVisibility(false);
-            });
-        }
+        // Ring click toggles VPN
+        connect(m_ring, &ConnectionRing::clicked, this, [this]() {
+            const auto s = m_vpnClient->state();
+            if (s == QtTrustTunnelClient::State::Disconnected || s == QtTrustTunnelClient::State::Error) {
+                m_connectButton->click();
+            } else {
+                m_disconnectButton->click();
+            }
+        });
 
         connect(m_langEnAction, &QAction::triggered, this, [this]() {
             applyLanguage("en");
@@ -629,9 +726,11 @@ private:
         connect(m_settingsAction, &QAction::triggered, this, [this]() {
             openSettingsDialog();
         });
-        connect(m_settingsMenuAction, &QAction::triggered, this, [this]() {
-            openSettingsDialog();
-        });
+        if (m_settingsMenuAction) {
+            connect(m_settingsMenuAction, &QAction::triggered, this, [this]() {
+                openSettingsDialog();
+            });
+        }
         connect(m_quitAction, &QAction::triggered, this, [this]() {
             m_forceExit = true;
             close();
@@ -785,6 +884,9 @@ private:
             // reset counters on a fresh session
             m_bytesRx = 0;
             m_bytesTx = 0;
+            m_lastGraphRx = 0;
+            m_lastGraphTx = 0;
+            m_trafficGraph->reset();
             m_loggedConnectionInfos.clear();
             statusBar()->showMessage(tr("Preparing routing rules..."), 1500);
 #ifndef _WIN32
@@ -864,25 +966,34 @@ private:
             switch (s) {
             case QtTrustTunnelClient::State::Connecting:
                 m_stateLabel->setText(tr("VPN: Connecting"));
+                m_ring->setStatus(ConnectionRing::Connecting);
+                updateRingText();
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.start(1500);
                 break;
             case QtTrustTunnelClient::State::Connected:
                 m_stateLabel->setText(tr("VPN: Connected"));
+                m_ring->setStatus(ConnectionRing::Connected);
+                updateRingText();
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.start(1500);
                 statusBar()->showMessage(tr("VPN connected"), 2000);
+                updateServerInfo();
                 break;
             case QtTrustTunnelClient::State::Reconnecting:
                 m_stateLabel->setText(tr("VPN: Reconnecting"));
+                m_ring->setStatus(ConnectionRing::Reconnecting);
+                updateRingText();
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.start(1500);
                 break;
             case QtTrustTunnelClient::State::WaitingForNetwork:
                 m_stateLabel->setText(tr("VPN: No Network"));
+                m_ring->setStatus(ConnectionRing::Connecting);
+                m_ring->setStatusText(m_currentLang == "ru" ? "Нет сети" : "No Network");
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.stop();
@@ -890,12 +1001,16 @@ private:
                 break;
             case QtTrustTunnelClient::State::Disconnecting:
                 m_stateLabel->setText(tr("VPN: Disconnecting"));
+                m_ring->setStatus(ConnectionRing::Disconnecting);
+                updateRingText();
                 m_connectButton->setEnabled(false);
                 m_disconnectButton->setEnabled(false);
                 m_statsTimer.stop();
                 break;
             case QtTrustTunnelClient::State::Error:
                 m_stateLabel->setText(tr("VPN: Error"));
+                m_ring->setStatus(ConnectionRing::Error);
+                updateRingText();
                 m_connectButton->setEnabled(true);
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.stop();
@@ -903,9 +1018,12 @@ private:
             case QtTrustTunnelClient::State::Disconnected:
             default:
                 m_stateLabel->setText(tr("VPN: Disconnected"));
+                m_ring->setStatus(ConnectionRing::Disconnected);
+                updateRingText();
                 m_connectButton->setEnabled(true);
                 m_disconnectButton->setEnabled(false);
                 m_statsTimer.stop();
+                m_trafficGraph->reset();
                 break;
             }
         };
@@ -946,23 +1064,57 @@ private:
             m_stateLabel->setText(tr("VPN: %1").arg(step));
             statusBar()->showMessage(step, 3000);
         });
+        // Accumulate traffic from per-packet output callback (non-TUN-fd platforms)
         connect(m_vpnClient, &QtTrustTunnelClient::clientOutput, this, [this](const QString &bytes) {
             bool ok = false;
             const quint64 b = bytes.toULongLong(&ok);
             if (ok) {
                 m_bytesRx += b;
             }
-            log(tr("Output chunk: %1 bytes").arg(bytes));
+        });
+
+        // Accumulate traffic from per-connection tunnel stats (works on all platforms incl. macOS TUN)
+        connect(m_vpnClient, &QtTrustTunnelClient::tunnelStats, this, [this](quint64 upload, quint64 download) {
+            m_bytesRx += download;
+            m_bytesTx += upload;
         });
 
         m_statsTimer.setSingleShot(false);
         m_statsTimer.setInterval(1500);
         connect(&m_statsTimer, &QTimer::timeout, this, [this]() {
+            // Feed traffic graph with delta since last sample
+            const quint64 rxNow = m_bytesRx;
+            const quint64 txNow = m_bytesTx;
+            const quint64 rxDelta = (rxNow >= m_lastGraphRx) ? (rxNow - m_lastGraphRx) : rxNow;
+            const quint64 txDelta = (txNow >= m_lastGraphTx) ? (txNow - m_lastGraphTx) : txNow;
+            m_lastGraphRx = rxNow;
+            m_lastGraphTx = txNow;
+            m_trafficGraph->addSample(rxDelta, txDelta);
+
+            // Update ring sub-text with live speed
+            if (m_ring && m_ring->status() == ConnectionRing::Connected) {
+                auto formatBytes = [](quint64 bytes) -> QString {
+                    if (bytes < 1024) return QString("%1 B/s").arg(bytes);
+                    if (bytes < 1024 * 1024) return QString("%1 KB/s").arg(bytes / 1024);
+                    return QString("%1 MB/s").arg(bytes / (1024 * 1024));
+                };
+                // deltas are bytes per 1.5s, convert to per-second rate
+                const quint64 rxPerSec = rxDelta * 2 / 3;
+                const quint64 txPerSec = txDelta * 2 / 3;
+                m_ring->setSubText(QString::fromUtf8("\u2193 ") + formatBytes(rxPerSec)
+                        + "  " + QString::fromUtf8("\u2191 ") + formatBytes(txPerSec));
+            }
+
             if (!m_appSettings.show_traffic_in_status) return;
-            statusBar()->showMessage(tr("Traffic Rx: %1 KB  Tx: %2 KB")
-                                             .arg(QString::number(m_bytesRx / 1024))
-                                             .arg(QString::number(m_bytesTx / 1024)),
-                    1400);
+            auto fmtTotal = [](quint64 bytes) -> QString {
+                if (bytes < 1024) return QString("%1 B").arg(bytes);
+                if (bytes < 1024 * 1024) return QString("%1 KB").arg(bytes / 1024);
+                if (bytes < 1024ULL * 1024 * 1024) return QString("%1.%2 MB").arg(bytes / (1024 * 1024)).arg((bytes / (1024 * 100)) % 10);
+                return QString("%1.%2 GB").arg(bytes / (1024ULL * 1024 * 1024)).arg((bytes / (1024ULL * 1024 * 100)) % 10);
+            };
+            statusBar()->showMessage(
+                    QString::fromUtf8("\u2193 ") + fmtTotal(m_bytesRx)
+                    + "  " + QString::fromUtf8("\u2191 ") + fmtTotal(m_bytesTx), 1400);
         });
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -993,9 +1145,23 @@ private:
         m_removeConfigButton->setText(ru ? "Удалить" : "Remove");
         m_pingConfigButton->setText(ru ? "Пинг" : "Ping");
         m_browseButton->setText(ru ? "Обзор..." : "Browse...");
-        m_viewConfigButton->setText(ru ? "Просмотр" : "View Config");
-        m_connectButton->setText(ru ? "Старт VPN" : "Start VPN");
-        m_disconnectButton->setText(ru ? "Стоп VPN" : "Stop VPN");
+        m_viewConfigButton->setText(ru ? "Просмотр" : "View");
+        m_connectButton->setText(ru ? "Подключить" : "Connect");
+        m_disconnectButton->setText(ru ? "Отключить" : "Disconnect");
+
+        // Nav bar
+        m_navHome->setText(ru ? "Главная" : "Home");
+        m_navConfigs->setText(ru ? "Конфиги" : "Configs");
+        m_navLogs->setText(ru ? "Логи" : "Logs");
+        m_navSettings->setText(ru ? "Настройки" : "Settings");
+
+        // Page titles
+        if (m_configsPageTitle) m_configsPageTitle->setText(ru ? "Конфигурации" : "Configs");
+        if (m_logsPageTitle)    m_logsPageTitle->setText(ru ? "Журнал" : "Logs");
+
+        // Update ring text for current language
+        updateRingText();
+        updateServerInfo();
         if (m_settingsAction) m_settingsAction->setText(ru ? "Настройки" : "Settings");
         if (m_importDeeplinkAction) m_importDeeplinkAction->setText(ru ? "Импорт Deeplink" : "Import Deeplink");
         if (m_createConfigAction) m_createConfigAction->setText(ru ? "Создать конфиг" : "Create Config");
@@ -1114,56 +1280,78 @@ private:
     void applyTheme() {
         auto makeLightPalette = []() {
             QPalette p;
-            p.setColor(QPalette::Window, QColor(244, 246, 251));
-            p.setColor(QPalette::WindowText, QColor(31, 42, 68));
-            p.setColor(QPalette::Base, QColor(255, 255, 255));
-            p.setColor(QPalette::AlternateBase, QColor(248, 250, 255));
-            p.setColor(QPalette::Text, QColor(31, 42, 68));
-            p.setColor(QPalette::Button, QColor(237, 242, 255));
-            p.setColor(QPalette::ButtonText, QColor(31, 42, 68));
-            p.setColor(QPalette::Highlight, QColor(28, 120, 255));
-            p.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+            p.setColor(QPalette::Window, QColor(0xF7, 0xF8, 0xFC));
+            p.setColor(QPalette::WindowText, QColor(0x1E, 0x20, 0x30));
+            p.setColor(QPalette::Base, QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::AlternateBase, QColor(0xF0, 0xF2, 0xF8));
+            p.setColor(QPalette::Text, QColor(0x1E, 0x20, 0x30));
+            p.setColor(QPalette::Button, QColor(0xEB, 0xED, 0xF5));
+            p.setColor(QPalette::ButtonText, QColor(0x1E, 0x20, 0x30));
+            p.setColor(QPalette::Highlight, QColor(0x5B, 0x6E, 0xF5));
+            p.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
             return p;
         };
         auto makeDarkPalette = []() {
             QPalette p;
-            p.setColor(QPalette::Window, QColor(24, 27, 34));
-            p.setColor(QPalette::WindowText, QColor(233, 238, 248));
-            p.setColor(QPalette::Base, QColor(32, 36, 45));
-            p.setColor(QPalette::AlternateBase, QColor(44, 49, 61));
-            p.setColor(QPalette::Text, QColor(233, 238, 248));
-            p.setColor(QPalette::Button, QColor(41, 48, 63));
-            p.setColor(QPalette::ButtonText, QColor(233, 238, 248));
-            p.setColor(QPalette::Highlight, QColor(74, 154, 255));
-            p.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+            p.setColor(QPalette::Window, QColor(0x10, 0x11, 0x18));
+            p.setColor(QPalette::WindowText, QColor(0xE0, 0xE2, 0xEA));
+            p.setColor(QPalette::Base, QColor(0x18, 0x19, 0x22));
+            p.setColor(QPalette::AlternateBase, QColor(0x20, 0x21, 0x2C));
+            p.setColor(QPalette::Text, QColor(0xE0, 0xE2, 0xEA));
+            p.setColor(QPalette::Button, QColor(0x20, 0x21, 0x2C));
+            p.setColor(QPalette::ButtonText, QColor(0xE0, 0xE2, 0xEA));
+            p.setColor(QPalette::Highlight, QColor(0x5B, 0x6E, 0xF5));
+            p.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
             return p;
         };
+
         const QString lightQss =
-                "QMainWindow{background:#f4f6fb;}"
-                "QGroupBox{background:#ffffff;border:1px solid #dde3ee;border-radius:12px;margin-top:12px;font-weight:600;color:#1f2a44;}"
-                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#ffffff;border:1px solid #d7deea;border-radius:10px;padding:8px;}"
-                "QPushButton{background:#edf2ff;border:1px solid #d0daf0;border-radius:10px;padding:8px 12px;color:#1e2a42;}"
-                "QPushButton:hover{background:#e5ecff;}"
-                "QPushButton#connectButton{background:#1c78ff;color:#ffffff;border:1px solid #1c78ff;font-weight:700;}"
-                "QPushButton#connectButton:hover{background:#1465df;}"
-                "QPushButton#disconnectButton{background:#ffffff;color:#2c3a55;border:1px solid #c9d4ea;font-weight:600;}"
-                "QLabel#stateLabel{background:#ecf8f1;color:#176a3a;border:1px solid #c7ead5;border-radius:10px;padding:8px;font-weight:700;}"
-                "QMenuBar{background:#f4f6fb;}"
-                "QStatusBar{background:#f4f6fb;color:#415170;}";
+            "QMainWindow { background: #F7F8FC; }"
+            "QListWidget, QTextEdit, QLineEdit { background: #FFFFFF; border: 1px solid #DDE0EA; border-radius: 10px; padding: 8px; color: #1E2030; }"
+            "QListWidget::item { padding: 6px 4px; border-radius: 6px; }"
+            "QListWidget::item:selected { background: #EEF0FF; color: #4A5ADB; }"
+            "QPushButton { background: #EBEDF5; border: 1px solid #D5D8E5; border-radius: 10px; padding: 8px 14px; color: #1E2030; font-weight: 500; }"
+            "QPushButton:hover { background: #E0E3F0; }"
+            "QPushButton#connectButton { background: #5B6EF5; color: #FFFFFF; border: none; font-weight: 700; }"
+            "QPushButton#connectButton:hover { background: #4A5ADB; }"
+            "QPushButton#disconnectButton { background: #F0F1F5; color: #444; border: 1px solid #CCC; font-weight: 600; }"
+            "QPushButton#disconnectButton:hover { background: #E8E9EE; }"
+            "QPushButton#navButton { background: transparent; border: none; color: #8890A0; font-size: 11px; padding: 6px 0; }"
+            "QPushButton#navButton:checked { color: #5B6EF5; }"
+            "QWidget#navBar { background: #F0F1F6; border-top: 1px solid #DDE0EA; }"
+            "QWidget#serverCard { background: #FFFFFF; border-radius: 16px; border: 1px solid #E5E8F0; }"
+            "QLabel#serverNameLabel { font-size: 20px; font-weight: 700; color: #1E2030; }"
+            "QLabel#serverDetailLabel { font-size: 12px; color: #8890A0; }"
+            "QLabel#pageTitle { font-size: 18px; font-weight: 700; color: #1E2030; }"
+            "QMenuBar { background: #F7F8FC; color: #333; }"
+            "QMenuBar::item:selected { background: #E5E8F0; }"
+            "QMenu { background: #FFFFFF; color: #1E2030; border: 1px solid #DDE0EA; }"
+            "QMenu::item:selected { background: #EEF0FF; }"
+            "QStatusBar { background: #F7F8FC; color: #8890A0; }";
+
         const QString darkQss =
-                "QMainWindow{background:#181b22;}"
-                "QGroupBox{background:#222732;border:1px solid #333b4d;border-radius:12px;margin-top:12px;font-weight:600;color:#e9eef8;}"
-                "QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 4px;}"
-                "QListWidget,QTextEdit,QLineEdit{background:#20242d;border:1px solid #394257;border-radius:10px;padding:8px;color:#e9eef8;}"
-                "QPushButton{background:#2b3342;border:1px solid #42506a;border-radius:10px;padding:8px 12px;color:#e9eef8;}"
-                "QPushButton:hover{background:#354057;}"
-                "QPushButton#connectButton{background:#2b7cff;color:#ffffff;border:1px solid #2b7cff;font-weight:700;}"
-                "QPushButton#connectButton:hover{background:#2167da;}"
-                "QPushButton#disconnectButton{background:#2a303d;color:#d7e0f2;border:1px solid #44506a;font-weight:600;}"
-                "QLabel#stateLabel{background:#1f3a2b;color:#8ee0b1;border:1px solid #2f5f46;border-radius:10px;padding:8px;font-weight:700;}"
-                "QMenuBar{background:#181b22;color:#e9eef8;}"
-                "QStatusBar{background:#181b22;color:#9fb0d0;}";
+            "QMainWindow { background: #101118; }"
+            "QListWidget, QTextEdit, QLineEdit { background: #181922; border: 1px solid #282A38; border-radius: 10px; padding: 8px; color: #E0E2EA; }"
+            "QListWidget::item { padding: 6px 4px; border-radius: 6px; }"
+            "QListWidget::item:selected { background: #252840; color: #8B9CF5; }"
+            "QPushButton { background: #20212C; border: 1px solid #30323E; border-radius: 10px; padding: 8px 14px; color: #D0D2DA; font-weight: 500; }"
+            "QPushButton:hover { background: #2A2B3A; }"
+            "QPushButton#connectButton { background: #5B6EF5; color: #FFFFFF; border: none; font-weight: 700; }"
+            "QPushButton#connectButton:hover { background: #4A5ADB; }"
+            "QPushButton#disconnectButton { background: #1C1D28; color: #D0D2DA; border: 1px solid #383A48; font-weight: 600; }"
+            "QPushButton#disconnectButton:hover { background: #252638; }"
+            "QPushButton#navButton { background: transparent; border: none; color: #555870; font-size: 11px; padding: 6px 0; }"
+            "QPushButton#navButton:checked { color: #7B8CF5; }"
+            "QWidget#navBar { background: #141520; border-top: 1px solid #282A38; }"
+            "QWidget#serverCard { background: #181924; border-radius: 16px; border: 1px solid #282A38; }"
+            "QLabel#serverNameLabel { font-size: 20px; font-weight: 700; color: #EEEEEE; }"
+            "QLabel#serverDetailLabel { font-size: 12px; color: #7A7E90; }"
+            "QLabel#pageTitle { font-size: 18px; font-weight: 700; color: #EEEEEE; }"
+            "QMenuBar { background: #101118; color: #CCCCCC; }"
+            "QMenuBar::item:selected { background: #282A38; }"
+            "QMenu { background: #181924; color: #D0D2DA; border: 1px solid #333; }"
+            "QMenu::item:selected { background: #252840; }"
+            "QStatusBar { background: #101118; color: #555870; }";
 
         bool dark = false;
         if (m_appSettings.theme_mode == "dark") {
@@ -1182,6 +1370,116 @@ private:
         qApp->setStyle("Fusion");
         qApp->setPalette(dark ? makeDarkPalette() : makeLightPalette());
         setStyleSheet(dark ? darkQss : lightQss);
+        if (m_ring) {
+            m_ring->setTextColor(dark ? QColor(0xEE, 0xEE, 0xEE) : QColor(0x1E, 0x20, 0x30));
+            m_ring->setSubTextColor(dark ? QColor(0x94, 0xA3, 0xB8) : QColor(0x66, 0x6A, 0x80));
+        }
+        recolorIcons(dark);
+    }
+
+    void recolorIcons(bool dark) {
+        // Nav bar icons: inactive=muted, we just set the base color;
+        // Qt stylesheet :checked color handles the accent.
+        const QColor navColor = dark ? QColor(0x99, 0x9B, 0xAA) : QColor(0x66, 0x6A, 0x80);
+        const QColor navActiveColor = dark ? QColor(0x7B, 0x8C, 0xF5) : QColor(0x5B, 0x6E, 0xF5);
+
+        // Set both normal and checked icons via QIcon modes
+        auto makeNavIcon = [&](const QString &path) -> QIcon {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) return {};
+            QByteArray svg = f.readAll();
+
+            auto renderSvg = [](const QByteArray &svgData, const QColor &col, int sz) -> QPixmap {
+                QByteArray colored = svgData;
+                colored.replace("currentColor", col.name(QColor::HexRgb).toUtf8());
+                QPixmap pix(sz, sz);
+                pix.fill(Qt::transparent);
+                QPainter painter(&pix);
+                painter.setRenderHint(QPainter::Antialiasing, true);
+                QSvgRenderer renderer(colored);
+                renderer.render(&painter);
+                return pix;
+            };
+
+            QIcon icon;
+            icon.addPixmap(renderSvg(svg, navColor, 22), QIcon::Normal, QIcon::Off);
+            icon.addPixmap(renderSvg(svg, navActiveColor, 22), QIcon::Normal, QIcon::On);
+            return icon;
+        };
+
+        if (m_navHome)     m_navHome->setIcon(makeNavIcon(":/icons/home.svg"));
+        if (m_navConfigs)  m_navConfigs->setIcon(makeNavIcon(":/icons/configs.svg"));
+        if (m_navLogs)     m_navLogs->setIcon(makeNavIcon(":/icons/log.svg"));
+        if (m_navSettings) m_navSettings->setIcon(makeNavIcon(":/icons/settings.svg"));
+    }
+
+    void updateRingText() {
+        if (!m_ring) return;
+        const bool ru = (m_currentLang == "ru");
+        switch (m_ring->status()) {
+        case ConnectionRing::Disconnected:
+            m_ring->setStatusText(ru ? "Отключено" : "Disconnected");
+            break;
+        case ConnectionRing::Connecting:
+            m_ring->setStatusText(ru ? "Подключение..." : "Connecting...");
+            break;
+        case ConnectionRing::Connected:
+            m_ring->setStatusText(ru ? "Подключено" : "Connected");
+            break;
+        case ConnectionRing::Reconnecting:
+            m_ring->setStatusText(ru ? "Переподключение..." : "Reconnecting...");
+            break;
+        case ConnectionRing::Disconnecting:
+            m_ring->setStatusText(ru ? "Отключение..." : "Disconnecting...");
+            break;
+        case ConnectionRing::Error:
+            m_ring->setStatusText(ru ? "Ошибка" : "Error");
+            break;
+        }
+    }
+
+    void updateServerInfo() {
+        const bool ru = (m_currentLang == "ru");
+        const QString path = m_configPath ? m_configPath->text() : QString();
+        if (path.isEmpty()) {
+            m_serverNameLabel->setText(ru ? "Нет конфигурации" : "No config");
+            m_serverDetailLabel->setText(ru ? "Задайте конфигурацию на вкладке Configs" : "Set a config in the Configs tab");
+            return;
+        }
+        // Try to extract server info from config TOML
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QFileInfo fi(path);
+            m_serverNameLabel->setText(fi.baseName());
+            m_serverDetailLabel->setText(path);
+            return;
+        }
+        const QString content = QString::fromUtf8(f.readAll());
+        f.close();
+
+        // Simple TOML parsing for display
+        QString host, port, proto;
+        for (const QString &line : content.split('\n')) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.startsWith("host") && trimmed.contains('=')) {
+                host = trimmed.section('=', 1).trimmed().remove('"');
+            } else if (trimmed.startsWith("port") && trimmed.contains('=')) {
+                port = trimmed.section('=', 1).trimmed().remove('"');
+            } else if (trimmed.startsWith("proto") && trimmed.contains('=')) {
+                proto = trimmed.section('=', 1).trimmed().remove('"').toUpper();
+            }
+        }
+
+        if (host.isEmpty()) {
+            QFileInfo fi(path);
+            m_serverNameLabel->setText(fi.baseName());
+            m_serverDetailLabel->setText(path);
+        } else {
+            m_serverNameLabel->setText(host);
+            QString detail = proto.isEmpty() ? "" : proto;
+            if (!port.isEmpty()) detail += (detail.isEmpty() ? "" : ":") + port;
+            m_serverDetailLabel->setText(detail.isEmpty() ? path : detail);
+        }
     }
 
     void refreshStoredList() {
@@ -1339,6 +1637,21 @@ private:
     QLabel *m_stateLabel = nullptr;
     QTextEdit *m_logView = nullptr;
 
+    // — new minimalist UI members —
+    ConnectionRing *m_ring = nullptr;
+    TrafficGraph *m_trafficGraph = nullptr;
+    QStackedWidget *m_stack = nullptr;
+    QPushButton *m_navHome = nullptr;
+    QPushButton *m_navConfigs = nullptr;
+    QPushButton *m_navLogs = nullptr;
+    QPushButton *m_navSettings = nullptr;
+    QLabel *m_serverNameLabel = nullptr;
+    QLabel *m_serverDetailLabel = nullptr;
+    quint64 m_lastGraphRx = 0;
+    quint64 m_lastGraphTx = 0;
+    QLabel *m_configsPageTitle = nullptr;
+    QLabel *m_logsPageTitle = nullptr;
+
     QSystemTrayIcon *m_tray = nullptr;
     QMenu *m_appMenu = nullptr;
     QMenu *m_settingsMenu = nullptr;
@@ -1413,6 +1726,7 @@ private:
         m_appSettings.strict_certificate_check = dlg.strictCertificateCheck();
         m_appSettings.show_logs_panel = dlg.showLogsPanel();
         m_appSettings.show_traffic_in_status = dlg.showTrafficInStatus();
+        m_appSettings.show_traffic_graph = dlg.showTrafficGraph();
         m_appSettings.routing_enabled = dlg.routingEnabled();
         m_appSettings.routing_mode = dlg.routingMode();
         if (!dlg.routingSourceUrl().isEmpty()) m_appSettings.routing_source_url = dlg.routingSourceUrl();
@@ -1428,6 +1742,7 @@ private:
         saveAppSettings(m_appSettings);
         applyTheme();
         if (m_toggleLogsAction) m_toggleLogsAction->setChecked(m_appSettings.show_logs_panel);
+        if (m_trafficGraph) m_trafficGraph->setVisible(m_appSettings.show_traffic_graph);
         if (!m_appSettings.show_traffic_in_status) statusBar()->clearMessage();
         statusBar()->showMessage(tr("Settings saved"), 2000);
     }

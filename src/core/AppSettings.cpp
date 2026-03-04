@@ -26,6 +26,7 @@ AppSettings loadAppSettings() {
     out.auto_connect_on_start = s.value("vpn/auto_connect_on_start", false).toBool();
     out.show_logs_panel = s.value("ui/show_logs_panel", true).toBool();
     out.show_traffic_in_status = s.value("ui/show_traffic_in_status", true).toBool();
+    out.show_traffic_graph = s.value("ui/show_traffic_graph", true).toBool();
     out.notify_on_state = s.value("ui/notify_on_state", true).toBool();
     out.notify_only_errors = s.value("ui/notify_only_errors", false).toBool();
     out.killswitch_enabled = s.value("vpn/killswitch_enabled", false).toBool();
@@ -59,6 +60,7 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("vpn/auto_connect_on_start", cfg.auto_connect_on_start);
     s.setValue("ui/show_logs_panel", cfg.show_logs_panel);
     s.setValue("ui/show_traffic_in_status", cfg.show_traffic_in_status);
+    s.setValue("ui/show_traffic_graph", cfg.show_traffic_graph);
     s.setValue("ui/notify_on_state", cfg.notify_on_state);
     s.setValue("ui/notify_only_errors", cfg.notify_only_errors);
     s.setValue("vpn/killswitch_enabled", cfg.killswitch_enabled);

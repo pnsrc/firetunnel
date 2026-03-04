@@ -7,7 +7,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 COMPONENTS Widgets Network REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Network Svg REQUIRED)
 set(TRUSTTUNNEL_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "Path to TrustTunnelClient repository root")
 
 set(FIRETUNNEL_GIT_VERSION "unknown")
@@ -49,6 +49,10 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     include/ui/SettingsDialog.h
     src/ui/ConfigWizard.cpp
     include/ui/ConfigWizard.h
+    src/ui/ConnectionRing.cpp
+    include/ui/ConnectionRing.h
+    src/ui/TrafficGraph.cpp
+    include/ui/TrafficGraph.h
     src/vpn/qt_trusttunnel_client.cpp
     include/vpn/qt_trusttunnel_client.h
     assets/app.qrc
@@ -56,7 +60,7 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
-    FIRETUNNEL_VERSION="0.10b"
+    FIRETUNNEL_VERSION="0.11b"
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 
@@ -68,7 +72,7 @@ target_include_directories(trusttunnel-qt PRIVATE
 )
 
 if (TARGET vpnlibs_trusttunnel)
-    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network vpnlibs_trusttunnel)
+    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network Qt6::Svg vpnlibs_trusttunnel)
     target_include_directories(trusttunnel-qt PRIVATE
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
         ${TRUSTTUNNEL_REPO_ROOT}/common/include
@@ -84,7 +88,7 @@ else()
             "or build this client from inside the monorepo where vpnlibs_trusttunnel target is available.")
     endif()
     add_subdirectory(${TRUSTTUNNEL_REPO_ROOT}/trusttunnel-core trusttunnel-core-build)
-    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network trusttunnel_core)
+    target_link_libraries(trusttunnel-qt PRIVATE Qt6::Widgets Qt6::Network Qt6::Svg trusttunnel_core)
     target_include_directories(trusttunnel-qt PRIVATE
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/include
         ${TRUSTTUNNEL_REPO_ROOT}/trusttunnel/src

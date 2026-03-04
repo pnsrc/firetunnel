@@ -63,6 +63,7 @@ signals:
     void connectProgress(const QString &step);
     void connectionInfo(const QString &msg);
     void clientOutput(const QString &bytes); // bytes in chunk
+    void tunnelStats(quint64 upload, quint64 download); // per-connection delta bytes
 
 private:
     ag::VpnCallbacks makeCallbacks();

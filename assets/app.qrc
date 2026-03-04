@@ -12,5 +12,9 @@
         <file alias="maintenance.svg">icons/maintenance.svg</file>
         <file alias="about.svg">icons/about.svg</file>
         <file alias="licenses.svg">icons/licenses.svg</file>
+        <file alias="home.svg">icons/home.svg</file>
+        <file alias="log.svg">icons/log.svg</file>
+        <file alias="settings.svg">icons/settings.svg</file>
+        <file alias="configs.svg">icons/configs.svg</file>
     </qresource>
 </RCC>

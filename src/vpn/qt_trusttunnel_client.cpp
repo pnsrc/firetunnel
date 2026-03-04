@@ -375,6 +375,14 @@ ag::VpnCallbacks QtTrustTunnelClient::makeCallbacks() {
         QMetaObject::invokeMethod(this, [this, bytes]() { emit clientOutput(QString::number(bytes)); },
                 Qt::QueuedConnection);
     };
+    callbacks.tunnel_stats_handler = [this](ag::VpnTunnelConnectionStatsEvent *event) {
+        if (event) {
+            quint64 up = event->upload;
+            quint64 down = event->download;
+            QMetaObject::invokeMethod(this, [this, up, down]() { emit tunnelStats(up, down); },
+                    Qt::QueuedConnection);
+        }
+    };
     callbacks.connection_info_handler = [this](ag::VpnConnectionInfoEvent *event) {
         QString line = QStringLiteral("connection info");
         if (event) {

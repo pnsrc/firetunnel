@@ -28,6 +28,7 @@ public:
     bool autoConnectOnStart() const;
     bool showLogsPanel() const;
     bool showTrafficInStatus() const;
+    bool showTrafficGraph() const;
     bool notifyOnState() const;
     bool notifyOnlyErrors() const;
     bool killswitchEnabled() const;
@@ -69,6 +70,7 @@ private:
     QComboBox *m_logLevelCombo = nullptr;
     QCheckBox *m_showLogsPanelCheck = nullptr;
     QCheckBox *m_showTrafficCheck = nullptr;
+    QCheckBox *m_showTrafficGraphCheck = nullptr;
     QCheckBox *m_notifyOnStateCheck = nullptr;
     QCheckBox *m_notifyErrorsOnlyCheck = nullptr;
     QCheckBox *m_killswitchCheck = nullptr;
