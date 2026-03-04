@@ -18,8 +18,10 @@ struct iovec {
 #endif
 
 #include "vpn/vpn.h" // for ag::iovec on Windows
+#include "net/network_manager.h" // for vpn_network_manager_get_outbound_interface
 
 #ifdef _WIN32
+#include "net/os_tunnel.h" // for vpn_win_socket_protect
 #include <windows.h>
 
 static bool is_process_elevated() {
@@ -48,6 +50,10 @@ QtTrustTunnelClient::QtTrustTunnelClient(QObject *parent)
     : QObject(parent) {
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &QtTrustTunnelClient::doConnectAttempt);
+
+    // Periodically check open fd count and force clean reconnect if leaking.
+    m_fdWatchdogTimer.setInterval(10000); // every 10 seconds
+    connect(&m_fdWatchdogTimer, &QTimer::timeout, this, &QtTrustTunnelClient::checkFdHealth);
 }
 
 QtTrustTunnelClient::~QtTrustTunnelClient() {
@@ -146,6 +152,7 @@ void QtTrustTunnelClient::connectVpn() {
 #endif
     m_stopRequested = false;
     m_reconnectTimer.stop();
+    m_fdWatchdogTimer.start(); // start fd health monitoring
     // Set state immediately so the UI shows "Connecting", then schedule
     // the heavy work (vpn_open, DNS proxy init, connect) on the next event
     // loop iteration so the window has a chance to repaint first.
@@ -253,6 +260,7 @@ void QtTrustTunnelClient::doConnectAttempt() {
 void QtTrustTunnelClient::disconnectVpn() {
     m_stopRequested = true;
     m_reconnectTimer.stop();
+    m_fdWatchdogTimer.stop();
     setState(State::Disconnecting);
 
     teardownClient();
@@ -318,9 +326,35 @@ void QtTrustTunnelClient::setExtraExclusions(const std::vector<std::string> &exc
 ag::VpnCallbacks QtTrustTunnelClient::makeCallbacks() {
     ag::VpnCallbacks callbacks;
     callbacks.protect_handler = [](ag::SocketProtectEvent *event) {
-        if (event) {
-            event->result = 0;
+        if (!event) return;
+        event->result = 0;
+#ifdef __APPLE__
+        // Bind the socket to the physical outbound interface so it bypasses
+        // the TUN routing table.  Without this, bypass connections loop back
+        // through the TUN and never reach the destination.
+        uint32_t idx = ag::vpn_network_manager_get_outbound_interface();
+        if (idx == 0) return;
+        if (event->peer->sa_family == AF_INET) {
+            if (setsockopt(event->fd, IPPROTO_IP, IP_BOUND_IF, &idx, sizeof(idx)) != 0) {
+                event->result = -1;
+            }
+        } else if (event->peer->sa_family == AF_INET6) {
+            if (setsockopt(event->fd, IPPROTO_IPV6, IPV6_BOUND_IF, &idx, sizeof(idx)) != 0) {
+                event->result = -1;
+            }
         }
+#endif
+#ifdef __linux__
+        // On Linux, SO_BINDTODEVICE requires root and a known interface name.
+        // For now we rely on routing rules; if bound_if is needed, it can be
+        // configured via the TunListener config.
+        (void) event;
+#endif
+#ifdef _WIN32
+        if (!ag::vpn_win_socket_protect(event->fd, event->peer)) {
+            event->result = -1;
+        }
+#endif
     };
     callbacks.verify_handler = [](ag::VpnVerifyCertificateEvent *event) {
         if (event) {
@@ -420,15 +454,26 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
         setState(m_everConnected ? State::Reconnecting : State::Connecting);
         break;
     case ag::VPN_SS_RECOVERING:
-        setState(m_everConnected ? State::Reconnecting : State::Connecting);
+        // The core's internal recovery leaks TCP/IP sockets (the old tcpip
+        // stack and its buffered connections are not fully closed before
+        // new ones are created).  Force a clean teardown + reconnect from
+        // the Qt layer to avoid exhausting file descriptors.
+        if (!m_stopRequested && m_autoReconnect) {
+            teardownClient();
+            scheduleReconnect(QStringLiteral("recovery: full reconnect to avoid fd leak"));
+        } else {
+            setState(m_everConnected ? State::Reconnecting : State::Connecting);
+        }
         break;
     case ag::VPN_SS_WAITING_RECOVERY:
-        // The core VPN library handles recovery internally via its own FSM
-        // (WAITING_RECOVERY -> RECOVERING -> CONNECTED). We just reflect
-        // the state in the UI and let the core do its job.
-        // If we haven't connected yet (e.g. initial ping failed, core fell
-        // into recovery), show "Connecting" instead of "Reconnecting".
-        setState(m_everConnected ? State::Reconnecting : State::Connecting);
+        // Same as RECOVERING — don't let the core attempt its own recovery;
+        // do a clean reconnect from our side.
+        if (!m_stopRequested && m_autoReconnect) {
+            teardownClient();
+            scheduleReconnect(QStringLiteral("waiting recovery: full reconnect to avoid fd leak"));
+        } else {
+            setState(m_everConnected ? State::Reconnecting : State::Connecting);
+        }
         break;
     case ag::VPN_SS_WAITING_FOR_NETWORK:
         // Network connectivity lost — show a distinct state so the user
@@ -450,4 +495,62 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
 }
 #ifndef _WIN32
 #include <unistd.h>
+#include <sys/resource.h>
+#include <dirent.h>
 #endif
+
+int QtTrustTunnelClient::countOpenFds() {
+#if defined(__APPLE__) || defined(__linux__)
+    int count = 0;
+    DIR *dir = opendir("/dev/fd");
+    if (!dir) {
+        // Fallback for Linux: /proc/self/fd
+        dir = opendir("/proc/self/fd");
+    }
+    if (dir) {
+        while (readdir(dir) != nullptr) {
+            ++count;
+        }
+        closedir(dir);
+        count -= 2; // subtract "." and ".."
+    }
+    return count;
+#else
+    return -1; // not supported on Windows
+#endif
+}
+
+int QtTrustTunnelClient::getFdLimit() {
+#ifndef _WIN32
+    struct rlimit rl{};
+    if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
+        return static_cast<int>(rl.rlim_cur);
+    }
+#endif
+    return -1;
+}
+
+void QtTrustTunnelClient::checkFdHealth() {
+    if (m_state != State::Connected && m_state != State::Reconnecting) {
+        return;
+    }
+    const int openFds = countOpenFds();
+    const int fdLimit = getFdLimit();
+    if (openFds < 0 || fdLimit < 0) {
+        return; // platform doesn't support fd counting
+    }
+
+    // If we're using more than 70% of the fd limit, force a clean reconnect
+    // to release leaked sockets from the VPN core.
+    const double usage = static_cast<double>(openFds) / static_cast<double>(fdLimit);
+    if (usage > 0.70) {
+        qWarning("[fd watchdog] Open fds: %d / %d (%.0f%%) — forcing clean reconnect",
+                openFds, fdLimit, usage * 100.0);
+        emit vpnError(QString("fd watchdog: %1/%2 fds used, reconnecting...")
+                .arg(openFds).arg(fdLimit));
+        teardownClient();
+        if (!m_stopRequested && m_autoReconnect) {
+            scheduleReconnect(QStringLiteral("fd watchdog: too many open files, clean reconnect"));
+        }
+    }
+}

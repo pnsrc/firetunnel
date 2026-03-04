@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QAction>
 #include <QActionGroup>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -550,6 +551,23 @@ private:
         logLayout->addLayout(logHeader);
         m_logView = new QTextEdit(m_logBox);
         m_logView->setReadOnly(true);
+        m_logView->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        m_logView->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_logView, &QTextEdit::customContextMenuRequested, this, [this](const QPoint &pos) {
+            QMenu *menu = new QMenu(m_logView);
+            QAction *copyAct = menu->addAction(tr("Copy"), m_logView, &QTextEdit::copy);
+            copyAct->setShortcut(QKeySequence::Copy);
+            copyAct->setEnabled(m_logView->textCursor().hasSelection());
+            menu->addAction(tr("Select All"), m_logView, &QTextEdit::selectAll);
+            menu->addSeparator();
+            menu->addAction(tr("Clear log"), m_logView, &QTextEdit::clear);
+            menu->addSeparator();
+            menu->addAction(tr("Copy All"), this, [this]() {
+                QApplication::clipboard()->setText(m_logView->toPlainText());
+            });
+            menu->exec(m_logView->mapToGlobal(pos));
+            menu->deleteLater();
+        });
         logLayout->addWidget(m_logView);
 
         layout->addLayout(topRow);
@@ -1109,11 +1127,20 @@ private:
             return;
         }
         if (m_appSettings.save_logs && !m_appSettings.log_path.isEmpty()) {
-            QFile f(m_appSettings.log_path);
-            QFileInfo info(f);
-            QDir().mkpath(info.absolutePath());
-            if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
-                f.write(chunk);
+            // Keep the log file open to avoid exhausting file descriptors
+            // by repeatedly opening/closing on every log line.
+            if (!m_logFile.isOpen() || m_logFile.fileName() != m_appSettings.log_path) {
+                if (m_logFile.isOpen()) m_logFile.close();
+                m_logFile.setFileName(m_appSettings.log_path);
+                QFileInfo info(m_logFile);
+                QDir().mkpath(info.absolutePath());
+                if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append)) {
+                    // Failed to open — skip writing this chunk
+                }
+            }
+            if (m_logFile.isOpen()) {
+                m_logFile.write(chunk);
+                m_logFile.flush();
             }
         }
         // Cap the log view to prevent unbounded memory growth.
@@ -1388,6 +1415,7 @@ private:
     quint64 m_bytesRx = 0;
     quint64 m_bytesTx = 0;
     QSet<QString> m_loggedConnectionInfos;  // dedup connection info logs
+    QFile m_logFile;  // persistent log file handle
     QTimer m_statsTimer;
     QtTrustTunnelClient *m_vpnClient = nullptr;
     AppSettings m_appSettings;

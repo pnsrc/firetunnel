@@ -71,6 +71,9 @@ private:
     void setState(State s);
     void handleCoreStateChanged(ag::VpnSessionState state);
     void teardownClient();
+    void checkFdHealth();
+    static int countOpenFds();
+    static int getFdLimit();
 
     std::unique_ptr<ag::TrustTunnelClient> m_client;
     std::unique_ptr<ag::AutoNetworkMonitor> m_networkMonitor;
@@ -82,6 +85,7 @@ private:
     std::vector<std::string> m_extraExclusions;
     std::string m_originalExclusions; // exclusions from config file before our additions
     QTimer m_reconnectTimer;
+    QTimer m_fdWatchdogTimer;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;
     bool m_stopRequested = false;

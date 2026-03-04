@@ -54,7 +54,7 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
-    FIRETUNNEL_VERSION="0.9"
+    FIRETUNNEL_VERSION="0.10"
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 

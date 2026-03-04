@@ -17,8 +17,11 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QStackedWidget>
+#include <QDesktopServices>
+#include <QFileInfo>
 #include <QTextBrowser>
 #include <QTreeWidget>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include "ConfigInspector.h"
@@ -131,9 +134,29 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_showLogsPanelCheck->setChecked(settings.show_logs_panel);
     m_showTrafficCheck = new QCheckBox(ru ? "Показывать трафик в статусе" : "Show traffic in status bar", logsPage);
     m_showTrafficCheck->setChecked(settings.show_traffic_in_status);
+    auto *openLogBtn = new QPushButton(ru ? "Открыть файл логов" : "Open log file", logsPage);
+    connect(openLogBtn, &QPushButton::clicked, this, [this, ru]() {
+        const QString path = m_logPathEdit->text().trimmed();
+        if (path.isEmpty()) {
+            QMessageBox::information(this,
+                ru ? "Логи" : "Logs",
+                ru ? "Путь к файлу логов не задан." : "Log file path is not set.");
+            return;
+        }
+        QFileInfo fi(path);
+        if (!fi.exists()) {
+            QMessageBox::information(this,
+                ru ? "Логи" : "Logs",
+                ru ? "Файл логов ещё не создан.\nОн появится после начала записи."
+                   : "Log file does not exist yet.\nIt will be created once logging starts.");
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
     logsLayout->addRow(m_saveLogsCheck);
     logsLayout->addRow(ru ? "Уровень логов:" : "Log level:", m_logLevelCombo);
     logsLayout->addRow(ru ? "Файл логов:" : "Log file:", pathRow);
+    logsLayout->addRow(openLogBtn);
     logsLayout->addRow(m_showLogsPanelCheck);
     logsLayout->addRow(m_showTrafficCheck);
     addNavItem(ru ? "Логирование" : "Logging", logsPage, QIcon::fromTheme("document-open"));
