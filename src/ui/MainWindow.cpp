@@ -30,6 +30,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QPointer>
+#include <QSet>
 #include <QToolButton>
 #include <QStatusBar>
 #include <QStyle>
@@ -820,6 +821,7 @@ private:
             // reset counters on a fresh session
             m_bytesRx = 0;
             m_bytesTx = 0;
+            m_loggedConnectionInfos.clear();
             statusBar()->showMessage(tr("Preparing routing rules..."), 1500);
 #ifndef _WIN32
             if (!m_isRoot) {
@@ -968,7 +970,13 @@ private:
             }
         });
         connect(m_vpnClient, &QtTrustTunnelClient::connectionInfo, this, [this](const QString &msg) {
-            log(tr("Connection: %1").arg(msg));
+            // Deduplicate: only log each unique "action domain" message once per session.
+            // The core fires this callback for every TCP connection, which can produce
+            // hundreds of identical lines (e.g. "bypass yandex.ru") for a single page load.
+            if (!m_loggedConnectionInfos.contains(msg)) {
+                m_loggedConnectionInfos.insert(msg);
+                log(tr("Connection: %1").arg(msg));
+            }
         });
         connect(m_vpnClient, &QtTrustTunnelClient::connectProgress, this, [this](const QString &step) {
             m_stateLabel->setText(tr("VPN: %1").arg(step));
@@ -1379,6 +1387,7 @@ private:
     bool m_isRoot = false;
     quint64 m_bytesRx = 0;
     quint64 m_bytesTx = 0;
+    QSet<QString> m_loggedConnectionInfos;  // dedup connection info logs
     QTimer m_statsTimer;
     QtTrustTunnelClient *m_vpnClient = nullptr;
     AppSettings m_appSettings;
