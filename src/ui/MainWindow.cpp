@@ -855,7 +855,7 @@ private:
                 }
             }
 
-            // Apply domain bypass exclusions if enabled
+            // Apply domain bypass exclusions if enabled, or clear them if disabled
             if (m_appSettings.domain_bypass_enabled && !m_appSettings.domain_bypass_rules.isEmpty()) {
                 std::vector<std::string> exclusions;
                 for (const auto &rule : m_appSettings.domain_bypass_rules) {
@@ -867,6 +867,10 @@ private:
                     m_vpnClient->setExtraExclusions(exclusions);
                     log(tr("Domain bypass: %1 rule(s) applied").arg(exclusions.size()));
                 }
+            } else {
+                // Explicitly clear any previously set exclusions so they don't
+                // persist across reconnects or after the user disables bypass.
+                m_vpnClient->setExtraExclusions({});
             }
 
             // Scan for adapter conflicts if enabled

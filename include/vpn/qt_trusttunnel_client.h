@@ -80,6 +80,7 @@ private:
     std::vector<std::string> m_extraExcludedRoutes;
     std::vector<std::string> m_customDns;
     std::vector<std::string> m_extraExclusions;
+    std::string m_originalExclusions; // exclusions from config file before our additions
     QTimer m_reconnectTimer;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;

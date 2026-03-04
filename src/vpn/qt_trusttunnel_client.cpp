@@ -84,6 +84,9 @@ void QtTrustTunnelClient::setConfig(ag::TrustTunnelConfig config) {
         m_config->dns_upstreams = m_customDns;
     }
     // Append extra exclusions (domain bypass rules)
+    // Save original exclusions before we touch them so they can be restored
+    // if the user changes bypass rules later.
+    m_originalExclusions = m_config->exclusions;
     for (const auto &ex : m_extraExclusions) {
         if (!m_config->exclusions.empty() && m_config->exclusions.back() != ' ') {
             m_config->exclusions.push_back(' ');
@@ -300,6 +303,9 @@ void QtTrustTunnelClient::setCustomDns(const std::vector<std::string> &dnsServer
 void QtTrustTunnelClient::setExtraExclusions(const std::vector<std::string> &exclusions) {
     m_extraExclusions = exclusions;
     if (m_config.has_value()) {
+        // Restore original config exclusions first, then append new ones.
+        // This prevents duplicate/stale entries from accumulating.
+        m_config->exclusions = m_originalExclusions;
         for (const auto &ex : m_extraExclusions) {
             if (!m_config->exclusions.empty() && m_config->exclusions.back() != ' ') {
                 m_config->exclusions.push_back(' ');
