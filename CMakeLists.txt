@@ -47,6 +47,8 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     include/core/UpdateChecker.h
     src/ui/SettingsDialog.cpp
     include/ui/SettingsDialog.h
+    src/ui/ConfigWizard.cpp
+    include/ui/ConfigWizard.h
     src/vpn/qt_trusttunnel_client.cpp
     include/vpn/qt_trusttunnel_client.h
     assets/app.qrc

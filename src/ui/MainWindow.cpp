@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "ConfigWizard.h"
 
 #include <QApplication>
 #include <QAction>
@@ -383,68 +384,13 @@ private:
     }
 
     void createConfigFromTemplate() {
-        QDialog dlg(this);
-        dlg.setWindowTitle(tr("Create Config"));
-        auto *layout = new QVBoxLayout(&dlg);
-        auto *form = new QFormLayout();
-        auto *hostEdit = new QLineEdit("server.example.com", &dlg);
-        auto *addrEdit = new QLineEdit("server.example.com:443", &dlg);
-        auto *userEdit = new QLineEdit("user", &dlg);
-        auto *passEdit = new QLineEdit("password", &dlg);
-        passEdit->setEchoMode(QLineEdit::Password);
-        form->addRow(tr("Host:"), hostEdit);
-        form->addRow(tr("Address host:port:"), addrEdit);
-        form->addRow(tr("Username:"), userEdit);
-        form->addRow(tr("Password:"), passEdit);
-        layout->addLayout(form);
-
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-        layout->addWidget(buttons);
-        if (dlg.exec() != QDialog::Accepted) {
-            return;
-        }
-
-        const QString targetPath = QFileDialog::getSaveFileName(
-                this,
-                tr("Save TrustTunnel config"),
-                QDir::homePath() + "/trusttunnel-config.toml",
-                tr("TOML files (*.toml);;All files (*)"));
-        if (targetPath.isEmpty()) {
-            return;
-        }
-
-        const QString toml = QString(
-                                     "loglevel = \"info\"\n"
-                                     "vpn_mode = \"tunnel\"\n"
-                                     "killswitch_enabled = true\n\n"
-                                     "# DNS servers used inside the tunnel\n"
-                                     "dns_upstreams = [\"1.1.1.1\", \"8.8.8.8\"]\n\n"
-                                     "[endpoint]\n"
-                                     "hostname = \"%1\"\n"
-                                     "addresses = [\"%2\"]\n"
-                                     "upstream_protocol = \"http2\"\n"
-                                     "upstream_fallback_protocol = \"http\"\n"
-                                     "username = \"%3\"\n"
-                                     "password = \"%4\"\n\n"
-                                     "[listener.tun]\n"
-                                     "name = \"\"\n"
-                                     "mtu_size = 1500\n"
-                                     "change_system_dns = true\n")
-                                     .arg(hostEdit->text().trimmed(),
-                                             addrEdit->text().trimmed(),
-                                             userEdit->text().trimmed(),
-                                             passEdit->text());
-        QFile f(targetPath);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            QMessageBox::warning(this, tr("Config"), tr("Failed to save config file."));
-            return;
-        }
-        f.write(toml.toUtf8());
-        f.close();
-        selectConfigPath(targetPath);
-        statusBar()->showMessage(tr("Config created"), 2500);
+        auto *wizard = new ConfigWizard(m_currentLang, this);
+        wizard->setAttribute(Qt::WA_DeleteOnClose);
+        connect(wizard, &ConfigWizard::configCreated, this, [this](const QString &path) {
+            selectConfigPath(path);
+            statusBar()->showMessage(tr("Config created"), 2500);
+        });
+        wizard->show();
     }
 
     void setupUi() {
