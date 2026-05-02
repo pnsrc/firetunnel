@@ -33,6 +33,7 @@
 #include <QPalette>
 #include <QPainter>
 #include <QPixmap>
+#include <QScrollArea>
 #include <QSvgRenderer>
 #include <QProgressDialog>
 #include <QPushButton>
@@ -110,10 +111,14 @@ public:
         applyLanguage(m_appSettings.language == "ru" ? "ru" : "en");
         refreshStoredList();
         processStartupArguments();
-        if (m_configPath->text().trimmed().isEmpty() && m_configsList->count() > 0) {
-            m_configsList->setCurrentRow(0);
-            if (m_configsList->currentItem()) {
-                m_configPath->setText(m_configsList->currentItem()->text());
+        if (m_configPath->text().trimmed().isEmpty()) {
+            if (!m_appSettings.last_config_path.isEmpty() && QFile::exists(m_appSettings.last_config_path)) {
+                m_configPath->setText(m_appSettings.last_config_path);
+            } else if (m_configsList->count() > 0) {
+                m_configsList->setCurrentRow(0);
+                if (m_configsList->currentItem()) {
+                    m_configPath->setText(m_configsList->currentItem()->text());
+                }
             }
         }
         if (m_appSettings.auto_connect_on_start) {
@@ -507,6 +512,13 @@ private:
         m_trafficGraph->setVisible(m_appSettings.show_traffic_graph);
         homeLayout->addWidget(m_trafficGraph);
 
+        // Traffic stats label
+        m_trafficStatsLabel = new QLabel(homePage);
+        m_trafficStatsLabel->setAlignment(Qt::AlignCenter);
+        m_trafficStatsLabel->setStyleSheet("color: #B0B0B0; font-size: 11px;");
+        m_trafficStatsLabel->setText(tr("RX: 0 B | TX: 0 B"));
+        homeLayout->addWidget(m_trafficStatsLabel);
+
         m_stack->addWidget(homePage);
 
         // ════════════════════════════════════════════
@@ -526,9 +538,28 @@ private:
         m_configsList = new QListWidget(configsPage);
         configsPageLayout->addWidget(m_configsList, 1);
 
+        auto *configInfoBox = new QWidget(configsPage);
+        configInfoBox->setObjectName("serverCard");
+        auto *configInfoLayout = new QVBoxLayout(configInfoBox);
+        configInfoLayout->setContentsMargins(12, 12, 12, 12);
+        configInfoLayout->setSpacing(4);
+
+        m_configNameLabel = new QLabel("—", configInfoBox);
+        m_configNameLabel->setObjectName("serverNameLabel");
+        m_configNameLabel->setAlignment(Qt::AlignCenter);
+
+        m_configDetailLabel = new QLabel("", configInfoBox);
+        m_configDetailLabel->setObjectName("serverDetailLabel");
+        m_configDetailLabel->setAlignment(Qt::AlignCenter);
+
+        configInfoLayout->addWidget(m_configNameLabel);
+        configInfoLayout->addWidget(m_configDetailLabel);
+        configsPageLayout->addWidget(configInfoBox);
+
         auto *pathRow = new QHBoxLayout();
         m_configPath = new QLineEdit(configsPage);
         m_configPath->setPlaceholderText("Path to TrustTunnel TOML config");
+        m_configPath->setVisible(false);
         m_browseButton = new QPushButton(configsPage);
         m_viewConfigButton = new QPushButton(configsPage);
         pathRow->addWidget(m_configPath, 1);
@@ -538,12 +569,14 @@ private:
 
         auto *configsBtnRow = new QHBoxLayout();
         configsBtnRow->setSpacing(8);
-        m_addConfigButton = new QPushButton(configsPage);
         m_removeConfigButton = new QPushButton(configsPage);
         m_pingConfigButton = new QPushButton(configsPage);
-        configsBtnRow->addWidget(m_addConfigButton);
+        m_qrConfigButton = new QPushButton(configsPage);
+        configsBtnRow->addWidget(m_browseButton);
         configsBtnRow->addWidget(m_removeConfigButton);
+        configsBtnRow->addWidget(m_viewConfigButton);
         configsBtnRow->addWidget(m_pingConfigButton);
+        configsBtnRow->addWidget(m_qrConfigButton);
         configsPageLayout->addLayout(configsBtnRow);
 
         // Hidden group boxes (for compatibility with applyLanguage)
@@ -570,22 +603,7 @@ private:
         m_logView = new QTextEdit(logsPage);
         m_logView->setReadOnly(true);
         m_logView->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-        m_logView->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_logView, &QTextEdit::customContextMenuRequested, this, [this](const QPoint &pos) {
-            QMenu *menu = new QMenu(m_logView);
-            QAction *copyAct = menu->addAction(tr("Copy"), m_logView, &QTextEdit::copy);
-            copyAct->setShortcut(QKeySequence::Copy);
-            copyAct->setEnabled(m_logView->textCursor().hasSelection());
-            menu->addAction(tr("Select All"), m_logView, &QTextEdit::selectAll);
-            menu->addSeparator();
-            menu->addAction(tr("Clear log"), m_logView, &QTextEdit::clear);
-            menu->addSeparator();
-            menu->addAction(tr("Copy All"), this, [this]() {
-                QApplication::clipboard()->setText(m_logView->toPlainText());
-            });
-            menu->exec(m_logView->mapToGlobal(pos));
-            menu->deleteLater();
-        });
+        m_logView->setContextMenuPolicy(Qt::NoContextMenu);
         logsLayout->addWidget(m_logView, 1);
 
         m_logBox = new QGroupBox(logsPage);
@@ -772,18 +790,6 @@ private:
             m_updateChecker->checkNow();
         });
 
-        connect(m_addConfigButton, &QPushButton::clicked, this, [this]() {
-            const QString path = QFileDialog::getOpenFileName(
-                    this, tr("Select TrustTunnel config"), QString(), tr("TOML files (*.toml);;All files (*)"));
-            if (path.isEmpty()) {
-                return;
-            }
-            const QString normalized = QFileInfo(path).absoluteFilePath();
-            m_configPath->setText(normalized);
-            addCurrentToStorage();
-            refreshStoredList();
-        });
-
         connect(m_removeConfigButton, &QPushButton::clicked, this, [this]() {
             QListWidgetItem *item = m_configsList->currentItem();
             if (!item) {
@@ -820,6 +826,18 @@ private:
                     watcher->deleteLater();
                 }, Qt::QueuedConnection);
             }).detach();
+        });
+
+        connect(m_qrConfigButton, &QPushButton::clicked, this, [this]() {
+            QString path = m_configPath->text();
+            if (path.isEmpty() && m_configsList->currentItem()) {
+                path = m_configsList->currentItem()->text();
+            }
+            if (path.isEmpty()) {
+                QMessageBox::information(this, tr("QR Code"), tr("Select config first"));
+                return;
+            }
+            showConfigQRCode(path);
         });
 
         connect(m_configsList, &QListWidget::itemSelectionChanged, this, [this]() {
@@ -869,6 +887,21 @@ private:
             v->addWidget(tabs);
             dlg->exec();
             dlg->deleteLater();
+        });
+
+        // Update connect button state when config path changes
+        connect(m_configPath, &QLineEdit::textChanged, this, [this]() {
+            const auto s = m_vpnClient->state();
+            bool isDisconnected = (s == QtTrustTunnelClient::State::Disconnected ||
+                                   s == QtTrustTunnelClient::State::Error);
+            bool hasConfig = !m_configPath->text().trimmed().isEmpty();
+            m_connectButton->setEnabled(isDisconnected && hasConfig);
+            m_qrConfigButton->setEnabled(hasConfig);
+            updateConfigInfo();
+            if (hasConfig) {
+                m_appSettings.last_config_path = m_configPath->text();
+                saveAppSettings(m_appSettings);
+            }
         });
 
         connect(m_connectButton, &QPushButton::clicked, this, [this]() {
@@ -923,18 +956,38 @@ private:
                 }
             }
 
-            // Apply domain bypass exclusions if enabled, or clear them if disabled
+            // Apply domain bypass exclusions and traffic bypass rules
+            std::vector<std::string> exclusions;
+            int appliedCount = 0;
+
+            // Add domain bypass rules if enabled
             if (m_appSettings.domain_bypass_enabled && !m_appSettings.domain_bypass_rules.isEmpty()) {
-                std::vector<std::string> exclusions;
                 for (const auto &rule : m_appSettings.domain_bypass_rules) {
                     if (!rule.trimmed().isEmpty()) {
                         exclusions.push_back(rule.trimmed().toStdString());
+                        appliedCount++;
                     }
                 }
-                if (!exclusions.empty()) {
-                    m_vpnClient->setExtraExclusions(exclusions);
-                    log(tr("Domain bypass: %1 rule(s) applied").arg(exclusions.size()));
-                }
+            }
+
+            // Add SSH bypass (port 22) if enabled
+            if (m_appSettings.ssh_bypass_enabled) {
+                exclusions.push_back("||:22");  // exclude destination port 22 (SSH)
+                appliedCount++;
+            }
+
+            // Add P2P bypass if enabled
+            if (m_appSettings.p2p_bypass_enabled) {
+                // Common P2P port ranges: 6881-6889 (BitTorrent), 6969 (tracker)
+                // Using pattern for common P2P applications
+                exclusions.push_back("||:6881-6889");  // BitTorrent default range
+                exclusions.push_back("||:6969");        // BitTorrent tracker
+                appliedCount += 2;
+            }
+
+            if (!exclusions.empty()) {
+                m_vpnClient->setExtraExclusions(exclusions);
+                log(tr("Bypass rules applied: %1 rule(s)").arg(appliedCount));
             } else {
                 // Explicitly clear any previously set exclusions so they don't
                 // persist across reconnects or after the user disables bypass.
@@ -981,6 +1034,9 @@ private:
                 m_statsTimer.start(1500);
                 statusBar()->showMessage(tr("VPN connected"), 2000);
                 updateServerInfo();
+                if (m_appSettings.enable_notifications) {
+                    showNotification(tr("VPN Connected"), tr("Successfully connected to VPN"));
+                }
                 break;
             case QtTrustTunnelClient::State::Reconnecting:
                 m_stateLabel->setText(tr("VPN: Reconnecting"));
@@ -1011,17 +1067,23 @@ private:
                 m_stateLabel->setText(tr("VPN: Error"));
                 m_ring->setStatus(ConnectionRing::Error);
                 updateRingText();
-                m_connectButton->setEnabled(true);
+                m_connectButton->setEnabled(!m_configPath->text().trimmed().isEmpty());
                 m_disconnectButton->setEnabled(true);
                 m_statsTimer.stop();
+                if (m_appSettings.enable_notifications) {
+                    showNotification(tr("VPN Error"), tr("Connection error occurred"));
+                }
                 break;
             case QtTrustTunnelClient::State::Disconnected:
             default:
                 m_stateLabel->setText(tr("VPN: Disconnected"));
                 m_ring->setStatus(ConnectionRing::Disconnected);
                 updateRingText();
-                m_connectButton->setEnabled(true);
+                m_connectButton->setEnabled(!m_configPath->text().trimmed().isEmpty());
                 m_disconnectButton->setEnabled(false);
+                if (m_appSettings.enable_notifications && s == QtTrustTunnelClient::State::Disconnected) {
+                    showNotification(tr("VPN Disconnected"), tr("Successfully disconnected from VPN"));
+                }
                 m_statsTimer.stop();
                 m_trafficGraph->reset();
                 break;
@@ -1115,6 +1177,16 @@ private:
             statusBar()->showMessage(
                     QString::fromUtf8("\u2193 ") + fmtTotal(m_bytesRx)
                     + "  " + QString::fromUtf8("\u2191 ") + fmtTotal(m_bytesTx), 1400);
+
+            // Update traffic stats label
+            m_totalSessionRx = m_bytesRx;
+            m_totalSessionTx = m_bytesTx;
+            if (m_trafficStatsLabel) {
+                m_trafficStatsLabel->setText(
+                    QString(tr("RX: %1 | TX: %2"))
+                        .arg(fmtTotal(m_totalSessionRx))
+                        .arg(fmtTotal(m_totalSessionTx)));
+            }
         });
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -1141,11 +1213,11 @@ private:
         m_controlBox->setTitle(ru ? "Подключение" : "Connection");
         m_logBox->setTitle(ru ? "Логи" : "Logs");
 
-        m_addConfigButton->setText(ru ? "Добавить" : "Add");
+        m_browseButton->setText(ru ? "Добавить" : "Add");
         m_removeConfigButton->setText(ru ? "Удалить" : "Remove");
-        m_pingConfigButton->setText(ru ? "Пинг" : "Ping");
-        m_browseButton->setText(ru ? "Обзор..." : "Browse...");
         m_viewConfigButton->setText(ru ? "Просмотр" : "View");
+        m_pingConfigButton->setText(ru ? "Пинг" : "Ping");
+        m_qrConfigButton->setText(ru ? "QR" : "QR");
         m_connectButton->setText(ru ? "Подключить" : "Connect");
         m_disconnectButton->setText(ru ? "Отключить" : "Disconnect");
 
@@ -1162,6 +1234,7 @@ private:
         // Update ring text for current language
         updateRingText();
         updateServerInfo();
+        updateConfigInfo();
         if (m_settingsAction) m_settingsAction->setText(ru ? "Настройки" : "Settings");
         if (m_importDeeplinkAction) m_importDeeplinkAction->setText(ru ? "Импорт Deeplink" : "Import Deeplink");
         if (m_createConfigAction) m_createConfigAction->setText(ru ? "Создать конфиг" : "Create Config");
@@ -1232,6 +1305,10 @@ private:
             saveAppSettings(m_appSettings);
         }
 #endif
+    }
+
+    void showNotification(const QString &title, const QString &message) {
+        statusBar()->showMessage(title + ": " + message, 3000);
     }
 
     void appendLogChunk(const QByteArray &chunk) {
@@ -1354,11 +1431,13 @@ private:
             "QStatusBar { background: #101118; color: #555870; }";
 
         bool dark = false;
+        bool useClaudeStyle = (m_appSettings.theme_mode == "claude");
+
         if (m_appSettings.theme_mode == "dark") {
             dark = true;
         } else if (m_appSettings.theme_mode == "light") {
             dark = false;
-        } else {
+        } else if (!useClaudeStyle) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
             dark = (QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark);
 #else
@@ -1368,13 +1447,48 @@ private:
         }
 
         qApp->setStyle("Fusion");
-        qApp->setPalette(dark ? makeDarkPalette() : makeLightPalette());
-        setStyleSheet(dark ? darkQss : lightQss);
-        if (m_ring) {
-            m_ring->setTextColor(dark ? QColor(0xEE, 0xEE, 0xEE) : QColor(0x1E, 0x20, 0x30));
-            m_ring->setSubTextColor(dark ? QColor(0x94, 0xA3, 0xB8) : QColor(0x66, 0x6A, 0x80));
+
+        if (useClaudeStyle) {
+            // Load Claude style from file
+            QFile claudeStyleFile(":/styles/claude.qss");
+            if (claudeStyleFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString claudeQss = QString::fromUtf8(claudeStyleFile.readAll());
+                setStyleSheet(claudeQss);
+                // Set Claude color palette
+                QPalette claudePalette;
+                claudePalette.setColor(QPalette::Window, QColor(0x0A, 0x0A, 0x0A));
+                claudePalette.setColor(QPalette::Base, QColor(0x1A, 0x1A, 0x1A));
+                claudePalette.setColor(QPalette::Text, QColor(0xFF, 0xFF, 0xFF));
+                claudePalette.setColor(QPalette::Button, QColor(0x33, 0x33, 0x33));
+                claudePalette.setColor(QPalette::ButtonText, QColor(0xFF, 0xFF, 0xFF));
+                claudePalette.setColor(QPalette::Highlight, QColor(0xC9, 0x74, 0x56));
+                claudePalette.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
+                qApp->setPalette(claudePalette);
+                // Recolor icons for Anthropic Claude style
+                if (m_ring) {
+                    m_ring->setTextColor(QColor(0xFF, 0xFF, 0xFF));
+                    m_ring->setSubTextColor(QColor(0xD4, 0xB8, 0x96));
+                }
+                recolorIconsForClaudeStyle();
+            } else {
+                // Fallback to dark theme if file not found
+                qApp->setPalette(makeDarkPalette());
+                setStyleSheet(darkQss);
+                if (m_ring) {
+                    m_ring->setTextColor(QColor(0xEE, 0xEE, 0xEE));
+                    m_ring->setSubTextColor(QColor(0x94, 0xA3, 0xB8));
+                }
+                recolorIcons(true);
+            }
+        } else {
+            qApp->setPalette(dark ? makeDarkPalette() : makeLightPalette());
+            setStyleSheet(dark ? darkQss : lightQss);
+            if (m_ring) {
+                m_ring->setTextColor(dark ? QColor(0xEE, 0xEE, 0xEE) : QColor(0x1E, 0x20, 0x30));
+                m_ring->setSubTextColor(dark ? QColor(0x94, 0xA3, 0xB8) : QColor(0x66, 0x6A, 0x80));
+            }
+            recolorIcons(dark);
         }
-        recolorIcons(dark);
     }
 
     void recolorIcons(bool dark) {
@@ -1482,6 +1596,47 @@ private:
         }
     }
 
+    void updateConfigInfo() {
+        const QString path = m_configPath ? m_configPath->text() : QString();
+        if (path.isEmpty()) {
+            m_configNameLabel->setText("—");
+            m_configDetailLabel->setText("");
+            return;
+        }
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QFileInfo fi(path);
+            m_configNameLabel->setText(fi.baseName());
+            m_configDetailLabel->setText("");
+            return;
+        }
+        const QString content = QString::fromUtf8(f.readAll());
+        f.close();
+
+        QString host, port, proto;
+        for (const QString &line : content.split('\n')) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.startsWith("host") && trimmed.contains('=')) {
+                host = trimmed.section('=', 1).trimmed().remove('"');
+            } else if (trimmed.startsWith("port") && trimmed.contains('=')) {
+                port = trimmed.section('=', 1).trimmed().remove('"');
+            } else if (trimmed.startsWith("proto") && trimmed.contains('=')) {
+                proto = trimmed.section('=', 1).trimmed().remove('"').toUpper();
+            }
+        }
+
+        QFileInfo fi(path);
+        if (host.isEmpty()) {
+            m_configNameLabel->setText(fi.baseName());
+            m_configDetailLabel->setText("");
+        } else {
+            m_configNameLabel->setText(host);
+            QString detail = proto.isEmpty() ? "" : proto;
+            if (!port.isEmpty()) detail += (detail.isEmpty() ? "" : ":") + port;
+            m_configDetailLabel->setText(detail);
+        }
+    }
+
     void refreshStoredList() {
         const QString current = m_configPath->text();
         m_configsList->clear();
@@ -1506,6 +1661,57 @@ private:
             saveStoredConfigs(configs);
             refreshStoredList();
         }
+    }
+
+    void showConfigQRCode(const QString &path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this, tr("QR Code"), tr("Failed to open config file."));
+            return;
+        }
+        const QByteArray fileData = f.readAll();
+        f.close();
+
+        const QString base64Data = QString::fromLatin1(fileData.toBase64());
+
+        auto *dlg = new QDialog(this);
+        dlg->setWindowTitle(tr("Config QR Code"));
+        dlg->resize(500, 580);
+        auto *layout = new QVBoxLayout(dlg);
+        layout->setContentsMargins(16, 16, 16, 16);
+        layout->setSpacing(12);
+
+        auto *qrDisplay = new QLabel(dlg);
+        qrDisplay->setAlignment(Qt::AlignCenter);
+        qrDisplay->setMinimumSize(400, 400);
+        qrDisplay->setStyleSheet("background-color: white; border-radius: 8px;");
+        layout->addWidget(qrDisplay, 1);
+
+        auto *closeBtn = new QPushButton(tr("Close"), dlg);
+        connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+        layout->addWidget(closeBtn);
+
+        dlg->show();
+
+        auto *nam = new QNetworkAccessManager(dlg);
+        const QString encodedData = QString::fromUtf8(QUrl::toPercentEncoding(base64Data));
+        const QString qrUrl = QString("https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=%1").arg(encodedData);
+
+        auto *reply = nam->get(QNetworkRequest(QUrl(qrUrl)));
+        connect(reply, &QNetworkReply::finished, [reply, qrDisplay]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QPixmap qrPixmap;
+                qrPixmap.loadFromData(reply->readAll());
+                if (!qrPixmap.isNull()) {
+                    qrDisplay->setPixmap(qrPixmap.scaledToWidth(400, Qt::SmoothTransformation));
+                } else {
+                    qrDisplay->setText(tr("Failed to generate QR code"));
+                }
+            } else {
+                qrDisplay->setText(tr("Network error: %1").arg(reply->errorString()));
+            }
+            reply->deleteLater();
+        });
     }
 
     void showUpdateDialog(const UpdateChecker::ReleaseInfo &info) {
@@ -1627,9 +1833,11 @@ private:
 
     QListWidget *m_configsList = nullptr;
     QLineEdit *m_configPath = nullptr;
-    QPushButton *m_addConfigButton = nullptr;
+    QLabel *m_configNameLabel = nullptr;
+    QLabel *m_configDetailLabel = nullptr;
     QPushButton *m_removeConfigButton = nullptr;
     QPushButton *m_pingConfigButton = nullptr;
+    QPushButton *m_qrConfigButton = nullptr;
     QPushButton *m_browseButton = nullptr;
     QPushButton *m_viewConfigButton = nullptr;
     QPushButton *m_connectButton = nullptr;
@@ -1647,8 +1855,11 @@ private:
     QPushButton *m_navSettings = nullptr;
     QLabel *m_serverNameLabel = nullptr;
     QLabel *m_serverDetailLabel = nullptr;
+    QLabel *m_trafficStatsLabel = nullptr;
     quint64 m_lastGraphRx = 0;
     quint64 m_lastGraphTx = 0;
+    quint64 m_totalSessionRx = 0;
+    quint64 m_totalSessionTx = 0;
     QLabel *m_configsPageTitle = nullptr;
     QLabel *m_logsPageTitle = nullptr;
 
@@ -1880,6 +2091,62 @@ private:
         statusBar()->showMessage(
             ru ? QString("Найдено конфликтов: %1").arg(conflicts.size())
                : QString("Conflicts found: %1").arg(conflicts.size()), 3000);
+    }
+
+    void recolorIconsForClaudeStyle() {
+        // Anthropic Claude official icon colors
+        const QColor navColor = QColor(0xD4, 0xB8, 0x96);          // Kraft
+        const QColor navActiveColor = QColor(0xC9, 0x74, 0x56);    // Terracotta
+
+        // Recolor nav bar icons
+        auto makeNavIcon = [&](const QString &path) -> QIcon {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) return {};
+            QByteArray svg = f.readAll();
+
+            auto renderSvg = [](const QByteArray &svgData, const QColor &col, int sz) -> QPixmap {
+                QSvgRenderer renderer(svgData);
+                QPixmap pix(sz, sz);
+                pix.fill(Qt::transparent);
+                QPainter painter(&pix);
+                renderer.render(&painter);
+                painter.end();
+
+                // Colorize
+                if (col != QColor(0, 0, 0)) {
+                    QPixmap colorized(sz, sz);
+                    colorized.fill(Qt::transparent);
+                    QPainter p(&colorized);
+                    p.setCompositionMode(QPainter::CompositionMode_Screen);
+                    p.fillRect(colorized.rect(), col);
+                    p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+                    p.drawPixmap(0, 0, pix);
+                    return colorized;
+                }
+                return pix;
+            };
+
+            QIcon icon;
+            icon.addPixmap(renderSvg(svg, navColor, 16), QIcon::Normal);
+            icon.addPixmap(renderSvg(svg, navActiveColor, 16), QIcon::Active);
+            return icon;
+        };
+
+        // Apply icons to nav buttons
+        const QStringList navPaths = {
+            ":/icons/home.svg",
+            ":/icons/configs.svg",
+            ":/icons/logging.svg",
+            ":/icons/settings.svg"
+        };
+
+        // Update nav button icons if they exist
+        QList<QPushButton*> navButtons = findChildren<QPushButton*>();
+        for (int i = 0; i < navButtons.count() && i < navPaths.count(); ++i) {
+            if (navButtons[i]->objectName() == "navButton") {
+                navButtons[i]->setIcon(makeNavIcon(navPaths[i]));
+            }
+        }
     }
 
     void handleScanConflictsBeforeConnect() {

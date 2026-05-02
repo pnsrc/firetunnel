@@ -3,6 +3,9 @@
         <file>logo.png</file>
         <file alias="LICENSE">../LICENSE</file>
     </qresource>
+    <qresource prefix="/styles">
+        <file alias="claude.qss">../resources/styles/claude.qss</file>
+    </qresource>
     <qresource prefix="/icons">
         <file alias="general.svg">icons/general.svg</file>
         <file alias="connection.svg">icons/connection.svg</file>

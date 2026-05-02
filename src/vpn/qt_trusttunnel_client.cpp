@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QMetaObject>
 #include <QRandomGenerator>
+#include <QThread>
 #include <algorithm>
 #include <chrono>
 #include <toml++/toml.h>
@@ -49,7 +50,7 @@ static ag::LogLevel parse_log_level(const QString &level) {
 QtTrustTunnelClient::QtTrustTunnelClient(QObject *parent)
     : QObject(parent) {
     m_reconnectTimer.setSingleShot(true);
-    connect(&m_reconnectTimer, &QTimer::timeout, this, &QtTrustTunnelClient::doConnectAttempt);
+    connect(&m_reconnectTimer, &QTimer::timeout, this, &QtTrustTunnelClient::doConnectAttemptInThread);
 
     // Periodically check open fd count and force clean reconnect if leaking.
     m_fdWatchdogTimer.setInterval(10000); // every 10 seconds
@@ -61,17 +62,21 @@ QtTrustTunnelClient::~QtTrustTunnelClient() {
     // reference this object which is already being torn down.
     m_stopRequested = true;
     m_reconnectTimer.stop();
+    if (m_connectThread.isRunning()) {
+        m_connectThread.quit();
+        m_connectThread.wait();
+    }
     blockSignals(true);
     teardownClient();
 }
 
 void QtTrustTunnelClient::teardownClient() {
-    if (m_client) {
-        m_client->disconnect();
-    }
     if (m_networkMonitor) {
         m_networkMonitor->stop();
         m_networkMonitor.reset();
+    }
+    if (m_client) {
+        m_client->disconnect();
     }
     m_client.reset();
 }
@@ -87,7 +92,7 @@ void QtTrustTunnelClient::setConfig(ag::TrustTunnelConfig config) {
     }
     // Apply custom DNS overrides
     if (!m_customDns.empty()) {
-        m_config->dns_upstreams = m_customDns;
+        m_config->location.dns_upstreams = m_customDns;
     }
     // Append extra exclusions (domain bypass rules)
     // Save original exclusions before we touch them so they can be restored
@@ -153,11 +158,29 @@ void QtTrustTunnelClient::connectVpn() {
     m_stopRequested = false;
     m_reconnectTimer.stop();
     m_fdWatchdogTimer.start(); // start fd health monitoring
-    // Set state immediately so the UI shows "Connecting", then schedule
-    // the heavy work (vpn_open, DNS proxy init, connect) on the next event
-    // loop iteration so the window has a chance to repaint first.
     setState(State::Connecting);
-    QTimer::singleShot(0, this, &QtTrustTunnelClient::doConnectAttempt);
+    doConnectAttemptInThread();
+}
+
+void QtTrustTunnelClient::doConnectAttemptInThread() {
+    // If thread is already running, wait for it to finish
+    if (m_connectThread.isRunning()) {
+        m_connectThread.quit();
+        m_connectThread.wait();
+    }
+
+    // Use a simple QObject to manage thread lifecycle
+    auto worker = new QObject();
+    worker->moveToThread(&m_connectThread);
+
+    connect(&m_connectThread, &QThread::started, this, [this, worker]() {
+        doConnectAttempt();
+        // Queue the worker deletion and thread exit
+        worker->deleteLater();
+        m_connectThread.quit();
+    });
+
+    m_connectThread.start();
 }
 
 void QtTrustTunnelClient::doConnectAttempt() {
@@ -178,8 +201,7 @@ void QtTrustTunnelClient::doConnectAttempt() {
         // previous session and all its resources.
         if (isReconnect) {
             emit connectProgress(tr("Disconnecting previous session..."));
-            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
-            m_client->disconnect();
+            teardownClient();  // Full cleanup including networkMonitor
         }
 
         if (!m_client) {
@@ -199,15 +221,13 @@ void QtTrustTunnelClient::doConnectAttempt() {
                 }
             }
             emit connectProgress(tr("Initializing VPN core..."));
-            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
             m_client = std::make_unique<ag::TrustTunnelClient>(std::move(*m_config), makeCallbacks());
             m_config.reset();
 
             emit connectProgress(tr("Starting network monitor..."));
-            qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
-            m_networkMonitor = std::make_unique<ag::AutoNetworkMonitor>(m_client.get());
+            m_networkMonitor = std::make_unique<ag::AutoNetworkMonitor>(m_client.get(), "");
             if (!m_networkMonitor->start()) {
                 m_networkMonitor.reset();
                 teardownClient();
@@ -218,7 +238,6 @@ void QtTrustTunnelClient::doConnectAttempt() {
         }
 
         emit connectProgress(tr("Configuring DNS..."));
-        qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
         if (auto dnsErr = m_client->set_system_dns()) {
             const std::string errText = dnsErr->str();
@@ -234,7 +253,6 @@ void QtTrustTunnelClient::doConnectAttempt() {
         m_lastConnectAttempt = std::chrono::steady_clock::now();
 
         emit connectProgress(tr("Establishing tunnel..."));
-        qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
         if (auto err = m_client->connect(ag::TrustTunnelClient::AutoSetup{})) {
             const std::string errText = err->str();
@@ -253,6 +271,7 @@ void QtTrustTunnelClient::doConnectAttempt() {
             return;
         }
     } catch (const std::exception &e) {
+        teardownClient();
         scheduleReconnect(QString::fromUtf8(e.what()));
     }
 }
@@ -261,8 +280,14 @@ void QtTrustTunnelClient::disconnectVpn() {
     m_stopRequested = true;
     m_reconnectTimer.stop();
     m_fdWatchdogTimer.stop();
-    setState(State::Disconnecting);
 
+    // Stop connect thread if running
+    if (m_connectThread.isRunning()) {
+        m_connectThread.quit();
+        m_connectThread.wait(5000);  // Wait up to 5 seconds
+    }
+
+    setState(State::Disconnecting);
     teardownClient();
 
     m_everConnected = false;
@@ -304,7 +329,7 @@ void QtTrustTunnelClient::setRoutingRules(const std::vector<std::string> &includ
 void QtTrustTunnelClient::setCustomDns(const std::vector<std::string> &dnsServers) {
     m_customDns = dnsServers;
     if (m_config.has_value() && !m_customDns.empty()) {
-        m_config->dns_upstreams = m_customDns;
+        m_config->location.dns_upstreams = m_customDns;
     }
 }
 

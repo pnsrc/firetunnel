@@ -43,6 +43,8 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
     include/core/AppUiUtils.h
     src/core/NetworkAdapterManager.cpp
     include/core/NetworkAdapterManager.h
+    src/core/ProcessManager.cpp
+    include/core/ProcessManager.h
     src/core/UpdateChecker.cpp
     include/core/UpdateChecker.h
     src/ui/SettingsDialog.cpp
@@ -60,7 +62,7 @@ add_executable(trusttunnel-qt WIN32 MACOSX_BUNDLE
 )
 
 target_compile_definitions(trusttunnel-qt PRIVATE
-    FIRETUNNEL_VERSION="0.11b"
+    FIRETUNNEL_VERSION="0.12b"
     FIRETUNNEL_GIT_VERSION="${FIRETUNNEL_GIT_VERSION}"
 )
 

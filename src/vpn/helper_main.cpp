@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     };
 
     auto client = std::make_unique<ag::TrustTunnelClient>(std::move(*config), std::move(callbacks));
-    auto network_monitor = std::make_unique<ag::AutoNetworkMonitor>(client.get());
+    auto network_monitor = std::make_unique<ag::AutoNetworkMonitor>(client.get(), "");
     if (!network_monitor->start()) {
         std::cerr << "Failed to start network monitor\n";
         return 1;

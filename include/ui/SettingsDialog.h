@@ -53,6 +53,9 @@ public:
     bool sshBypassEnabled() const;
     bool p2pBypassEnabled() const;
 
+    // Per-app rules
+    bool perAppRulesEnabled() const;
+
     /// Returns true if user requested a tunnel adapter reinstall.
     bool reinstallTunnelsRequested() const;
     /// Returns true if user requested a DNS flush.
@@ -66,6 +69,7 @@ signals:
     void advancedAction(const QString &action);
 
 private:
+    void showPerAppRulesDialog(const QString &lang, const AppSettings &settings);
     QCheckBox *m_saveLogsCheck = nullptr;
     QComboBox *m_logLevelCombo = nullptr;
     QCheckBox *m_showLogsPanelCheck = nullptr;
@@ -102,6 +106,9 @@ private:
     // SSH / P2P bypass
     QCheckBox *m_sshBypassCheck = nullptr;
     QCheckBox *m_p2pBypassCheck = nullptr;
+
+    // Per-app rules
+    QCheckBox *m_perAppRulesCheck = nullptr;
 
     bool m_reinstallTunnels = false;
     bool m_flushDns = false;

@@ -73,6 +73,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     m_themeModeCombo->addItem("System", "system");
     m_themeModeCombo->addItem("Light", "light");
     m_themeModeCombo->addItem("Dark", "dark");
+    m_themeModeCombo->addItem("Claude", "claude");
     int themeIdx = m_themeModeCombo->findData(settings.theme_mode);
     m_themeModeCombo->setCurrentIndex(themeIdx >= 0 ? themeIdx : 0);
     appearGroupLayout->addRow(ru ? "Тема:" : "Theme:", m_themeModeCombo);
@@ -113,6 +114,22 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     securityGroupLayout->addWidget(m_killswitchCheck);
     securityGroupLayout->addWidget(m_strictCertCheck);
     connectionLayout->addWidget(securityGroup);
+
+    auto *perAppGroup = new QGroupBox(ru ? "Управление приложениями" : "Per-App Control", connectionPage);
+    auto *perAppLayout = new QVBoxLayout(perAppGroup);
+    m_perAppRulesCheck = new QCheckBox(ru ? "Включить правила для приложений" : "Enable per-app rules", perAppGroup);
+    m_perAppRulesCheck->setChecked(settings.per_app_rules_enabled);
+    auto *perAppBtnLayout = new QHBoxLayout();
+    auto *perAppManageBtn = new QPushButton(ru ? "Управлять приложениями" : "Manage Apps");
+    perAppBtnLayout->addWidget(m_perAppRulesCheck);
+    perAppBtnLayout->addStretch();
+    perAppBtnLayout->addWidget(perAppManageBtn);
+    perAppLayout->addLayout(perAppBtnLayout);
+    connectionLayout->addWidget(perAppGroup);
+
+    connect(perAppManageBtn, &QPushButton::clicked, this, [this, lang, settings]() {
+        showPerAppRulesDialog(lang, settings);
+    });
 
     auto *routingGroup = new QGroupBox(ru ? "Маршрутизация" : "Routing", connectionPage);
     auto *routingGroupLayout = new QFormLayout(routingGroup);
@@ -665,3 +682,128 @@ QStringList SettingsDialog::domainBypassRules() const {
 bool SettingsDialog::scanAdapterConflicts() const { return m_scanConflictsCheck && m_scanConflictsCheck->isChecked(); }
 bool SettingsDialog::sshBypassEnabled() const { return m_sshBypassCheck && m_sshBypassCheck->isChecked(); }
 bool SettingsDialog::p2pBypassEnabled() const { return m_p2pBypassCheck && m_p2pBypassCheck->isChecked(); }
+bool SettingsDialog::perAppRulesEnabled() const { return m_perAppRulesCheck && m_perAppRulesCheck->isChecked(); }
+
+#include "ProcessManager.h"
+
+void SettingsDialog::showPerAppRulesDialog(const QString &lang, const AppSettings &settings) {
+    const bool ru = (lang == "ru");
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle(ru ? "Правила для приложений" : "Per-App Rules");
+    dlg->resize(700, 500);
+
+    auto *layout = new QVBoxLayout(dlg);
+
+    // Current rules section
+    auto *rulesLabel = new QLabel(ru ? "Текущие правила:" : "Current Rules:");
+    layout->addWidget(rulesLabel);
+
+    auto *listWidget = new QListWidget(dlg);
+    QStringList ruleItems;
+    for (const auto &rule : settings.app_rules) {
+        const QString text = QString("%1: %2 KB/s").arg(rule.appName, QString::number(rule.throttleSpeed));
+        ruleItems << text;
+    }
+    listWidget->addItems(ruleItems);
+    layout->addWidget(listWidget, 1);
+
+    // Process selection section
+    auto *processLabel = new QLabel(ru ? "Запущенные приложения:" : "Running Applications:");
+    layout->addWidget(processLabel);
+
+    // Search box
+    auto *searchEdit = new QLineEdit(dlg);
+    searchEdit->setPlaceholderText(ru ? "Поиск приложения..." : "Search application...");
+    layout->addWidget(searchEdit);
+
+    auto *processListWidget = new QListWidget(dlg);
+    processListWidget->setSelectionMode(QAbstractItemView::MultiSelection);
+    processListWidget->setMaximumHeight(150);
+
+    auto updateProcessList = [processListWidget](const QString &filter) {
+        processListWidget->clear();
+        auto processes = ProcessManager::getRunningProcesses();
+        for (const auto &proc : processes) {
+            if (proc.displayName.length() > 0) {
+                // Фильтр поиска
+                if (!filter.isEmpty() && !proc.displayName.toLower().contains(filter.toLower())) {
+                    continue;
+                }
+                const QString text = QString("%1 (%2)").arg(proc.displayName, proc.path);
+                auto *item = new QListWidgetItem(text, processListWidget);
+                item->setData(Qt::UserRole, proc.path);
+            }
+        }
+    };
+
+    // Первоначальная загрузка
+    updateProcessList("");
+
+    // Подключаем поиск
+    connect(searchEdit, &QLineEdit::textChanged, [updateProcessList](const QString &text) {
+        updateProcessList(text);
+    });
+
+    layout->addWidget(processListWidget);
+
+    // Rule selector
+    auto *ruleLayout = new QHBoxLayout();
+    auto *ruleLabel = new QLabel(ru ? "Правило:" : "Rule:");
+    auto *ruleCombo = new QComboBox(dlg);
+    ruleCombo->addItem(ru ? "Туннель (весь трафик через VPN)" : "Tunnel (all traffic through VPN)");
+    ruleCombo->addItem(ru ? "Обход (без VPN)" : "Bypass (no VPN)");
+    ruleCombo->addItem(ru ? "Дросселирование" : "Throttle");
+    ruleLayout->addWidget(ruleLabel);
+    ruleLayout->addWidget(ruleCombo);
+    ruleLayout->addStretch();
+    layout->addLayout(ruleLayout);
+
+    // Buttons
+    auto *btnLayout = new QHBoxLayout();
+    auto *addBtn = new QPushButton(ru ? "Добавить выбранное" : "Add Selected");
+    auto *removeBtn = new QPushButton(ru ? "Удалить" : "Remove");
+    auto *closeBtn = new QPushButton(ru ? "Закрыть" : "Close");
+    btnLayout->addWidget(addBtn);
+    btnLayout->addWidget(removeBtn);
+    btnLayout->addStretch();
+    btnLayout->addWidget(closeBtn);
+    layout->addLayout(btnLayout);
+
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    connect(removeBtn, &QPushButton::clicked, [listWidget, ru, dlg]() {
+        auto *item = listWidget->currentItem();
+        if (!item) {
+            QMessageBox::information(dlg, ru ? "Ошибка" : "Error",
+                ru ? "Выберите приложение для удаления" : "Select an app to remove");
+            return;
+        }
+        delete item;
+    });
+    connect(addBtn, &QPushButton::clicked, [processListWidget, ruleCombo, listWidget, ru, dlg]() {
+        auto selectedItems = processListWidget->selectedItems();
+        if (selectedItems.isEmpty()) {
+            QMessageBox::information(dlg, ru ? "Ошибка" : "Error",
+                ru ? "Выберите одно или несколько приложений" : "Select one or more apps");
+            return;
+        }
+        const QString rule = ruleCombo->currentText();
+        for (auto *item : selectedItems) {
+            const QString appName = item->text().split(" (")[0];
+            const QString text = QString("%1: %2").arg(appName, rule);
+            // Проверим, не добавлен ли уже
+            bool exists = false;
+            for (int i = 0; i < listWidget->count(); i++) {
+                if (listWidget->item(i)->text().startsWith(appName + ":")) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                listWidget->addItem(text);
+            }
+        }
+    });
+
+    dlg->exec();
+    dlg->deleteLater();
+}

@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QThread>
 #include <memory>
 #include <functional>
 #include <optional>
@@ -65,6 +66,9 @@ signals:
     void clientOutput(const QString &bytes); // bytes in chunk
     void tunnelStats(quint64 upload, quint64 download); // per-connection delta bytes
 
+private slots:
+    void doConnectAttemptInThread();
+
 private:
     ag::VpnCallbacks makeCallbacks();
     void doConnectAttempt();
@@ -87,6 +91,7 @@ private:
     std::string m_originalExclusions; // exclusions from config file before our additions
     QTimer m_reconnectTimer;
     QTimer m_fdWatchdogTimer;
+    QThread m_connectThread;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;
     bool m_stopRequested = false;

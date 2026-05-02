@@ -2,6 +2,14 @@
 
 #include <QString>
 #include <QStringList>
+#include <QMap>
+
+struct AppRule {
+    QString appPath;      // Full path to executable
+    QString appName;      // Display name
+    QString rule;         // "tunnel" | "bypass" | "throttle"
+    int throttleSpeed = 0; // KB/s, 0 = unlimited
+};
 
 struct AppSettings {
     bool save_logs = true;
@@ -39,6 +47,16 @@ struct AppSettings {
     // (BitTorrent, etc.) traffic bypasses the VPN tunnel.
     bool ssh_bypass_enabled = false;
     bool p2p_bypass_enabled = false;
+
+    // Last used config
+    QString last_config_path = "";
+
+    // Notifications
+    bool enable_notifications = true;
+
+    // Per-app rules
+    bool per_app_rules_enabled = false;
+    QList<AppRule> app_rules;
 };
 
 AppSettings loadAppSettings();
