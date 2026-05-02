@@ -91,6 +91,7 @@ private:
     std::string m_originalExclusions; // exclusions from config file before our additions
     QTimer m_reconnectTimer;
     QTimer m_fdWatchdogTimer;
+    QTimer m_networkWaitTimer;   // fires if we stay in WaitingForNetwork too long
     QThread m_connectThread;
     State m_state = State::Disconnected;
     bool m_autoReconnect = true;

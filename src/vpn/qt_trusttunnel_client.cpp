@@ -55,6 +55,18 @@ QtTrustTunnelClient::QtTrustTunnelClient(QObject *parent)
     // Periodically check open fd count and force clean reconnect if leaking.
     m_fdWatchdogTimer.setInterval(10000); // every 10 seconds
     connect(&m_fdWatchdogTimer, &QTimer::timeout, this, &QtTrustTunnelClient::checkFdHealth);
+
+    // If we stay stuck in WaitingForNetwork for more than 30 s (common after
+    // sleep/wake or a brief network blip where the core doesn't self-recover),
+    // force a clean teardown and reconnect from the Qt side.
+    m_networkWaitTimer.setSingleShot(true);
+    m_networkWaitTimer.setInterval(30000);
+    connect(&m_networkWaitTimer, &QTimer::timeout, this, [this]() {
+        if (m_state == State::WaitingForNetwork && !m_stopRequested && m_autoReconnect) {
+            teardownClient();
+            scheduleReconnect(QStringLiteral("network wait timeout: forcing clean reconnect"));
+        }
+    });
 }
 
 QtTrustTunnelClient::~QtTrustTunnelClient() {
@@ -71,6 +83,18 @@ QtTrustTunnelClient::~QtTrustTunnelClient() {
 }
 
 void QtTrustTunnelClient::teardownClient() {
+    // If teardownClient is called from the main thread (e.g. handleCoreStateChanged,
+    // checkFdHealth, disconnectVpn) we MUST wait for m_connectThread to finish before
+    // touching m_client.  The thread may currently be inside m_client->connect() or
+    // m_client->set_system_dns(), so resetting m_client while it runs is a data race.
+    //
+    // When teardownClient is called FROM the connect thread itself (doConnectAttempt
+    // on a reconnect) we must NOT join it — that would deadlock.
+    if (QThread::currentThread() != &m_connectThread && m_connectThread.isRunning()) {
+        m_connectThread.quit();
+        m_connectThread.wait(5000);
+    }
+
     if (m_networkMonitor) {
         m_networkMonitor->stop();
         m_networkMonitor.reset();
@@ -280,6 +304,7 @@ void QtTrustTunnelClient::disconnectVpn() {
     m_stopRequested = true;
     m_reconnectTimer.stop();
     m_fdWatchdogTimer.stop();
+    m_networkWaitTimer.stop();
 
     // Stop connect thread if running
     if (m_connectThread.isRunning()) {
@@ -476,14 +501,14 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
     switch (state) {
     case ag::VPN_SS_CONNECTED:
         m_reconnectDelayMs = 1000;
-        m_reconnectTimer.stop(); // cancel any pending Qt-level reconnect
+        m_reconnectTimer.stop();
+        m_networkWaitTimer.stop(); // no longer waiting for network
         m_everConnected = true;
         setState(State::Connected);
         emit vpnConnected();
         break;
     case ag::VPN_SS_CONNECTING:
-        // Distinguish initial connect from reconnect: if we have connected
-        // at least once in this session, the core is re-connecting.
+        m_networkWaitTimer.stop();
         setState(m_everConnected ? State::Reconnecting : State::Connecting);
         break;
     case ag::VPN_SS_RECOVERING:
@@ -491,6 +516,7 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
         // stack and its buffered connections are not fully closed before
         // new ones are created).  Force a clean teardown + reconnect from
         // the Qt layer to avoid exhausting file descriptors.
+        m_networkWaitTimer.stop();
         if (!m_stopRequested && m_autoReconnect) {
             teardownClient();
             scheduleReconnect(QStringLiteral("recovery: full reconnect to avoid fd leak"));
@@ -501,6 +527,7 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
     case ag::VPN_SS_WAITING_RECOVERY:
         // Same as RECOVERING — don't let the core attempt its own recovery;
         // do a clean reconnect from our side.
+        m_networkWaitTimer.stop();
         if (!m_stopRequested && m_autoReconnect) {
             teardownClient();
             scheduleReconnect(QStringLiteral("waiting recovery: full reconnect to avoid fd leak"));
@@ -509,15 +536,22 @@ void QtTrustTunnelClient::handleCoreStateChanged(ag::VpnSessionState state) {
         }
         break;
     case ag::VPN_SS_WAITING_FOR_NETWORK:
-        // Network connectivity lost — show a distinct state so the user
-        // knows the issue is local (Wi-Fi/ethernet), not server-side.
+        // Network connectivity lost (internet disconnect, sleep mode, etc.).
+        // Show a distinct state so the user knows the issue is local.
+        // Start a watchdog: if the core does not self-recover within 30 s,
+        // we force a full teardown + reconnect.  This handles the common
+        // sleep/wake scenario where the core gets stuck after waking up.
         setState(State::WaitingForNetwork);
+        if (!m_stopRequested && m_autoReconnect) {
+            m_networkWaitTimer.start();
+        }
         break;
     case ag::VPN_SS_DISCONNECTED:
         // With VPN_CRP_FALL_INTO_RECOVERY the core only reaches DISCONNECTED
         // on fatal errors (auth failure, cert error, location unavailable).
         // Schedule a Qt-level reconnect anyway, which will create a fresh
         // client and reload the config.
+        m_networkWaitTimer.stop();
         if (!m_stopRequested) {
             scheduleReconnect(QStringLiteral("core disconnected"));
         }
