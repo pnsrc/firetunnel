@@ -92,7 +92,16 @@ void QtTrustTunnelClient::teardownClient() {
     // on a reconnect) we must NOT join it — that would deadlock.
     if (QThread::currentThread() != &m_connectThread && m_connectThread.isRunning()) {
         m_connectThread.quit();
-        m_connectThread.wait(5000);
+        // BUG FIX: wait() without a timeout — a finite wait(5000) returns false
+        // after 5 s even when the thread is still alive inside a blocking native
+        // call (m_client->connect, set_system_dns).  Calling m_client.reset()
+        // while the thread holds a reference is a use-after-free / data race.
+        // As a last resort after 15 s we terminate to prevent a complete hang.
+        if (!m_connectThread.wait(15000)) {
+            qWarning("[teardownClient] connect thread did not exit in 15 s — forcing terminate");
+            m_connectThread.terminate();
+            m_connectThread.wait();
+        }
     }
 
     if (m_networkMonitor) {
@@ -193,13 +202,22 @@ void QtTrustTunnelClient::doConnectAttemptInThread() {
         m_connectThread.wait();
     }
 
-    // Use a simple QObject to manage thread lifecycle
-    auto worker = new QObject();
-    worker->moveToThread(&m_connectThread);
+    // BUG FIX: Disconnect any previous QThread::started connections that
+    // accumulated from earlier calls to this function.  Without this, every
+    // reconnect adds one more connection and on the N-th reconnect the lambda
+    // fires N times simultaneously, causing parallel doConnectAttempt() calls
+    // and a data race / crash on m_client.
+    disconnect(&m_connectThread, &QThread::started, nullptr, nullptr);
 
-    connect(&m_connectThread, &QThread::started, this, [this, worker]() {
+    // BUG FIX: Use `worker` (not `this`) as the receiver context object so
+    // that Qt routes the lambda to m_connectThread instead of the main thread.
+    // With `this` as the context, Qt picks Qt::QueuedConnection across threads
+    // and posts the lambda to the main thread's event loop — doConnectAttempt()
+    // would then block the entire UI.
+    auto *worker = new QObject();
+    worker->moveToThread(&m_connectThread);
+    connect(&m_connectThread, &QThread::started, worker, [this, worker]() {
         doConnectAttempt();
-        // Queue the worker deletion and thread exit
         worker->deleteLater();
         m_connectThread.quit();
     });
@@ -306,10 +324,15 @@ void QtTrustTunnelClient::disconnectVpn() {
     m_fdWatchdogTimer.stop();
     m_networkWaitTimer.stop();
 
-    // Stop connect thread if running
+    // Stop connect thread if running.  No timeout: teardownClient() below calls
+    // m_client.reset() and a running thread would still hold a pointer to it.
     if (m_connectThread.isRunning()) {
         m_connectThread.quit();
-        m_connectThread.wait(5000);  // Wait up to 5 seconds
+        if (!m_connectThread.wait(15000)) {
+            qWarning("[disconnectVpn] connect thread did not exit in 15 s — forcing terminate");
+            m_connectThread.terminate();
+            m_connectThread.wait();
+        }
     }
 
     setState(State::Disconnecting);
