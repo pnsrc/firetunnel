@@ -52,6 +52,8 @@ public:
     // SSH / P2P bypass
     bool sshBypassEnabled() const;
     bool p2pBypassEnabled() const;
+    bool customPortsBypassEnabled() const;
+    QString customBypassPorts() const;
 
     // Per-app rules
     bool perAppRulesEnabled() const;
@@ -106,6 +108,8 @@ private:
     // SSH / P2P bypass
     QCheckBox *m_sshBypassCheck = nullptr;
     QCheckBox *m_p2pBypassCheck = nullptr;
+    QCheckBox *m_customPortsBypassCheck = nullptr;
+    QLineEdit *m_customPortsEdit = nullptr;
 
     // Per-app rules
     QCheckBox *m_perAppRulesCheck = nullptr;

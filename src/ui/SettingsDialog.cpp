@@ -239,6 +239,19 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
             ? "P2P-трафик (BitTorrent, DHT и др.) будет идти напрямую, минуя VPN-туннель."
             : "P2P traffic (BitTorrent, DHT, etc.) will go direct, bypassing the VPN tunnel.");
     bypassTrafficLayout->addWidget(m_p2pBypassCheck);
+    m_customPortsBypassCheck = new QCheckBox(ru ? "Обходить указанные порты" : "Bypass specified ports", bypassTrafficGroup);
+    m_customPortsBypassCheck->setChecked(settings.custom_ports_bypass_enabled);
+    m_customPortsBypassCheck->setToolTip(ru
+            ? "Трафик на перечисленные порты назначения пойдёт напрямую, минуя VPN-туннель."
+            : "Traffic to the listed destination ports will go direct, bypassing the VPN tunnel.");
+    bypassTrafficLayout->addWidget(m_customPortsBypassCheck);
+    m_customPortsEdit = new QLineEdit(bypassTrafficGroup);
+    m_customPortsEdit->setText(settings.custom_bypass_ports);
+    m_customPortsEdit->setPlaceholderText(ru ? "Напр.: 3389, 53, 6881-6889" : "e.g. 3389, 53, 6881-6889");
+    m_customPortsEdit->setToolTip(ru
+            ? "Порты через запятую; поддерживаются диапазоны (например, 6881-6889)."
+            : "Comma-separated ports; ranges are supported (e.g. 6881-6889).");
+    bypassTrafficLayout->addWidget(m_customPortsEdit);
     networkLayout->addWidget(bypassTrafficGroup);
 
     networkLayout->addStretch();
@@ -682,6 +695,8 @@ QStringList SettingsDialog::domainBypassRules() const {
 bool SettingsDialog::scanAdapterConflicts() const { return m_scanConflictsCheck && m_scanConflictsCheck->isChecked(); }
 bool SettingsDialog::sshBypassEnabled() const { return m_sshBypassCheck && m_sshBypassCheck->isChecked(); }
 bool SettingsDialog::p2pBypassEnabled() const { return m_p2pBypassCheck && m_p2pBypassCheck->isChecked(); }
+bool SettingsDialog::customPortsBypassEnabled() const { return m_customPortsBypassCheck && m_customPortsBypassCheck->isChecked(); }
+QString SettingsDialog::customBypassPorts() const { return m_customPortsEdit ? m_customPortsEdit->text() : QString(); }
 bool SettingsDialog::perAppRulesEnabled() const { return m_perAppRulesCheck && m_perAppRulesCheck->isChecked(); }
 
 #include "ProcessManager.h"

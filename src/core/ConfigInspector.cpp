@@ -125,6 +125,9 @@ QString buildConfigSummaryHtml(const QString &path) {
     QString loglevel = getStr(t["loglevel"]);
     QString mode = getStr(t["vpn_mode"]);
     QString killswitch = getStr(t["killswitch_enabled"]);
+    QString earlyAck = getStr(t["exclusions_tcp_early_ack_enabled"]);
+    QString preresolve = getStr(t["exclusions_preresolve_enabled"]);
+    QString preresolveMax = getStr(t["exclusions_preresolve_max_queries"]);
     QString boundIf = getStr(t["listener"]["tun"]["bound_if"]);
     QString mtu = getStr(t["listener"]["tun"]["mtu_size"]);
     QString dnsChange = getStr(t["listener"]["tun"]["change_system_dns"]);
@@ -151,6 +154,9 @@ QString buildConfigSummaryHtml(const QString &path) {
             "<tr><td><b>DNS upstreams</b></td><td>%13</td></tr>"
             "<tr><td><b>Included routes</b></td><td>%14</td></tr>"
             "<tr><td><b>Excluded routes</b></td><td>%15</td></tr>"
+            "<tr><td><b>Exclusions TCP early-ack</b></td><td>%16</td></tr>"
+            "<tr><td><b>Exclusions pre-resolve</b></td><td>%17</td></tr>"
+            "<tr><td><b>Exclusions pre-resolve max</b></td><td>%18</td></tr>"
             "</table>")
             .arg(endpointHost.toHtmlEscaped(),
                  endpointAddresses.toHtmlEscaped().replace("\n", "<br/>"),
@@ -166,7 +172,10 @@ QString buildConfigSummaryHtml(const QString &path) {
                  dnsChange.toHtmlEscaped(),
                  QString::number(dnsUpstreams.size()),
                  QString::number(includedRoutes.size()),
-                 QString::number(excludedRoutes.size()));
+                 QString::number(excludedRoutes.size()),
+                 earlyAck.toHtmlEscaped(),
+                 preresolve.toHtmlEscaped(),
+                 preresolveMax.toHtmlEscaped());
 }
 
 QString buildConfigValidationHtml(const QString &path) {

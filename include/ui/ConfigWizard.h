@@ -90,6 +90,9 @@ private:
     QSpinBox  *m_mtuSpin       = nullptr;
     QCheckBox *m_changeDnsCheck = nullptr;
     QPlainTextEdit *m_exclusionsEdit = nullptr;
+    QCheckBox *m_earlyAckCheck       = nullptr;
+    QCheckBox *m_preresolveCheck     = nullptr;
+    QSpinBox  *m_preresolveMaxSpin   = nullptr;
 
     // ── Page 4: Validation ──
     QTextBrowser  *m_summaryBrowser = nullptr;

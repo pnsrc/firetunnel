@@ -44,6 +44,8 @@ AppSettings loadAppSettings() {
     out.scan_adapter_conflicts = s.value("net/scan_adapter_conflicts", true).toBool();
     out.ssh_bypass_enabled = s.value("bypass/ssh_enabled", false).toBool();
     out.p2p_bypass_enabled = s.value("bypass/p2p_enabled", false).toBool();
+    out.custom_ports_bypass_enabled = s.value("bypass/custom_ports_enabled", false).toBool();
+    out.custom_bypass_ports = s.value("bypass/custom_ports", QString()).toString();
     if (out.log_path.isEmpty()) {
         out.log_path = defaultLogPath();
     }
@@ -77,4 +79,6 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("net/scan_adapter_conflicts", cfg.scan_adapter_conflicts);
     s.setValue("bypass/ssh_enabled", cfg.ssh_bypass_enabled);
     s.setValue("bypass/p2p_enabled", cfg.p2p_bypass_enabled);
+    s.setValue("bypass/custom_ports_enabled", cfg.custom_ports_bypass_enabled);
+    s.setValue("bypass/custom_ports", cfg.custom_bypass_ports);
 }

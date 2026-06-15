@@ -326,6 +326,32 @@ QWizardPage *ConfigWizard::createTunnelPage() {
     layout->addWidget(exclLabel);
     layout->addWidget(m_exclusionsEdit);
 
+    // Advanced exclusions handling (core options)
+    auto *exclAdvGroup = new QGroupBox(m_ru ? "Обработка исключений" : "Exclusions handling", page);
+    auto *exclAdvLayout = new QFormLayout(exclAdvGroup);
+    m_earlyAckCheck = new QCheckBox(
+        m_ru ? "TCP early-ack (читать SNI до подключения)" : "TCP early-ack (read SNI before connecting)",
+        exclAdvGroup);
+    m_earlyAckCheck->setChecked(false);
+    m_earlyAckCheck->setToolTip(m_ru
+        ? "Маршрутизирует TCP-соединения через фейковый upstream, чтобы прочитать SNI из TLS ClientHello. "
+          "Помогает при wildcard-исключениях и внешнем DNS."
+        : "Routes TCP connections through a fake upstream first to read the TLS SNI. "
+          "Helps with wildcard exclusions and external DNS setups.");
+    exclAdvLayout->addRow(QString(), m_earlyAckCheck);
+    m_preresolveCheck = new QCheckBox(
+        m_ru ? "Предразрешать DNS исключений в фоне" : "Pre-resolve exclusion DNS in background",
+        exclAdvGroup);
+    m_preresolveCheck->setChecked(true);
+    exclAdvLayout->addRow(QString(), m_preresolveCheck);
+    m_preresolveMaxSpin = new QSpinBox(exclAdvGroup);
+    m_preresolveMaxSpin->setRange(0, 1000);
+    m_preresolveMaxSpin->setValue(0);
+    m_preresolveMaxSpin->setSpecialValueText(m_ru ? "по умолчанию (50)" : "default (50)");
+    exclAdvLayout->addRow(m_ru ? "Макс. доменов для предразрешения:" : "Max domains to pre-resolve:",
+        m_preresolveMaxSpin);
+    layout->addWidget(exclAdvGroup);
+
     return page;
 }
 
@@ -625,6 +651,9 @@ QString ConfigWizard::buildToml() const {
     toml += QString("killswitch_enabled = %1\n").arg(m_killswitchCheck->isChecked() ? "true" : "false");
     toml += QString("post_quantum_group_enabled = %1\n").arg(m_pqCheck->isChecked() ? "true" : "false");
     toml += QString("exclusions = [%1]\n").arg(exclList.join(", "));
+    toml += QString("exclusions_tcp_early_ack_enabled = %1\n").arg(m_earlyAckCheck->isChecked() ? "true" : "false");
+    toml += QString("exclusions_preresolve_enabled = %1\n").arg(m_preresolveCheck->isChecked() ? "true" : "false");
+    toml += QString("exclusions_preresolve_max_queries = %1\n").arg(m_preresolveMaxSpin->value());
     toml += QString("dns_upstreams = [%1]\n").arg(dnsList.join(", "));
     toml += "\n";
 

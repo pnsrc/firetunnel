@@ -48,6 +48,12 @@ struct AppSettings {
     bool ssh_bypass_enabled = false;
     bool p2p_bypass_enabled = false;
 
+    // Arbitrary destination ports to bypass the tunnel. Accepts single ports
+    // and ranges, e.g. "3389, 53, 6881-6889". Each is expanded to the core's
+    // wildcard-port exclusion `*:port`.
+    bool custom_ports_bypass_enabled = false;
+    QString custom_bypass_ports;
+
     // Last used config
     QString last_config_path = "";
 

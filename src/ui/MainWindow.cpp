@@ -24,6 +24,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QRegularExpression>
 #include <QListWidget>
 #include <QMainWindow>
 #include <QMenu>
@@ -970,19 +971,58 @@ private:
                 }
             }
 
-            // Add SSH bypass (port 22) if enabled
+            // Add SSH bypass (port 22) if enabled.
+            // The core's exclusion syntax is `*:port` (wildcard port); see
+            // trusttunnel/README.md and core/src/domain_filter.cpp.
             if (m_appSettings.ssh_bypass_enabled) {
-                exclusions.push_back("||:22");  // exclude destination port 22 (SSH)
+                exclusions.push_back("*:22");  // exclude destination port 22 (SSH)
                 appliedCount++;
             }
 
-            // Add P2P bypass if enabled
+            // Add P2P bypass if enabled.
+            // The core supports only single wildcard ports (`*:port`), not
+            // ranges, so expand the BitTorrent default range 6881-6889
+            // explicitly. 6969 is the common BitTorrent tracker port.
             if (m_appSettings.p2p_bypass_enabled) {
-                // Common P2P port ranges: 6881-6889 (BitTorrent), 6969 (tracker)
-                // Using pattern for common P2P applications
-                exclusions.push_back("||:6881-6889");  // BitTorrent default range
-                exclusions.push_back("||:6969");        // BitTorrent tracker
-                appliedCount += 2;
+                for (int port = 6881; port <= 6889; ++port) {
+                    exclusions.push_back("*:" + std::to_string(port));
+                    appliedCount++;
+                }
+                exclusions.push_back("*:6969");  // BitTorrent tracker
+                appliedCount++;
+            }
+
+            // Add user-specified bypass ports if enabled. Accepts single ports
+            // (`3389`) and ranges (`6881-6889`), separated by commas/spaces;
+            // each is expanded to the core's wildcard-port exclusion `*:port`.
+            if (m_appSettings.custom_ports_bypass_enabled
+                    && !m_appSettings.custom_bypass_ports.trimmed().isEmpty()) {
+                const QStringList tokens = m_appSettings.custom_bypass_ports.split(
+                        QRegularExpression("[,;\\s]+"), Qt::SkipEmptyParts);
+                for (const QString &tok : tokens) {
+                    int lo = -1, hi = -1;
+                    const int dash = tok.indexOf('-');
+                    if (dash > 0) {
+                        bool okLo = false, okHi = false;
+                        lo = tok.left(dash).toInt(&okLo);
+                        hi = tok.mid(dash + 1).toInt(&okHi);
+                        if (!okLo || !okHi) continue;
+                    } else {
+                        bool ok = false;
+                        lo = hi = tok.toInt(&ok);
+                        if (!ok) continue;
+                    }
+                    if (lo > hi) { const int t = lo; lo = hi; hi = t; }
+                    if (lo < 1 || hi > 65535) continue;
+                    if (hi - lo > 1024) {  // guard against runaway ranges
+                        log(tr("Bypass port range too wide, skipped: %1").arg(tok));
+                        continue;
+                    }
+                    for (int port = lo; port <= hi; ++port) {
+                        exclusions.push_back("*:" + std::to_string(port));
+                        appliedCount++;
+                    }
+                }
             }
 
             if (!exclusions.empty()) {
@@ -1949,6 +1989,8 @@ private:
         m_appSettings.scan_adapter_conflicts = dlg.scanAdapterConflicts();
         m_appSettings.ssh_bypass_enabled = dlg.sshBypassEnabled();
         m_appSettings.p2p_bypass_enabled = dlg.p2pBypassEnabled();
+        m_appSettings.custom_ports_bypass_enabled = dlg.customPortsBypassEnabled();
+        m_appSettings.custom_bypass_ports = dlg.customBypassPorts();
         m_vpnClient->setLogLevel(m_appSettings.log_level);
         saveAppSettings(m_appSettings);
         applyTheme();
