@@ -979,11 +979,15 @@ private:
 
             // Add domain bypass rules if enabled
             if (m_appSettings.domain_bypass_enabled && !m_appSettings.domain_bypass_rules.isEmpty()) {
-                for (const auto &rule : m_appSettings.domain_bypass_rules) {
-                    if (!rule.trimmed().isEmpty()) {
-                        exclusions.push_back(rule.trimmed().toStdString());
-                        appliedCount++;
-                    }
+                for (auto rule : m_appSettings.domain_bypass_rules) {
+                    rule = rule.trimmed();
+                    if (rule.isEmpty())
+                        continue;
+                    // Auto-fix "*domain" → "*.domain" — the core requires a dot after wildcard.
+                    if (rule.startsWith('*') && rule.size() > 1 && rule[1] != '.')
+                        rule.insert(1, '.');
+                    exclusions.push_back(rule.toStdString());
+                    appliedCount++;
                 }
             }
 
