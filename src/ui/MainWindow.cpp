@@ -607,6 +607,22 @@ private:
         m_logView->setContextMenuPolicy(Qt::NoContextMenu);
         logsLayout->addWidget(m_logView, 1);
 
+        auto *logsBtnRow = new QHBoxLayout();
+        logsBtnRow->setSpacing(8);
+
+        m_copyLogsBtn = new QPushButton(tr("Copy"), logsPage);
+        m_copyLogsBtn->setObjectName("logsButton");
+        connect(m_copyLogsBtn, &QPushButton::clicked, this, [this]() { copyLogsToClipboard(); });
+        logsBtnRow->addWidget(m_copyLogsBtn);
+
+        m_clearLogsBtn = new QPushButton(tr("Clear"), logsPage);
+        m_clearLogsBtn->setObjectName("logsButton");
+        connect(m_clearLogsBtn, &QPushButton::clicked, this, [this]() { m_logView->clear(); });
+        logsBtnRow->addWidget(m_clearLogsBtn);
+
+        logsBtnRow->addStretch();
+        logsLayout->addLayout(logsBtnRow);
+
         m_logBox = new QGroupBox(logsPage);
         m_logBox->setVisible(false);   // compatibility stub
 
@@ -1270,6 +1286,8 @@ private:
         // Page titles
         if (m_configsPageTitle) m_configsPageTitle->setText(ru ? "Конфигурации" : "Configs");
         if (m_logsPageTitle)    m_logsPageTitle->setText(ru ? "Журнал" : "Logs");
+        if (m_copyLogsBtn)      m_copyLogsBtn->setText(ru ? "Копировать" : "Copy");
+        if (m_clearLogsBtn)     m_clearLogsBtn->setText(ru ? "Очистить" : "Clear");
 
         // Update ring text for current language
         updateRingText();
@@ -1392,6 +1410,34 @@ private:
 
     void log(const QString &line) {
         appendLogChunk(line.toUtf8() + '\n');
+    }
+
+    // On macOS, QClipboard is unavailable when running as root because the
+    // pasteboard is bound to the logged-in user session, not to root.
+    // Fall back to piping through pbcopy so the text still reaches the user.
+    void copyLogsToClipboard() {
+        const QString text = m_logView->toPlainText();
+        if (text.isEmpty())
+            return;
+#ifdef __APPLE__
+        if (m_isRoot) {
+            QProcess proc;
+            proc.start("pbcopy", {});
+            if (proc.waitForStarted(2000)) {
+                proc.write(text.toUtf8());
+                proc.closeWriteChannel();
+                proc.waitForFinished(3000);
+                if (proc.exitCode() == 0) {
+                    statusBar()->showMessage(tr("Logs copied"), 3000);
+                    return;
+                }
+            }
+            statusBar()->showMessage(tr("Copy failed — paste from /tmp/trusttunnel-qt.log instead"), 5000);
+            return;
+        }
+#endif
+        QGuiApplication::clipboard()->setText(text);
+        statusBar()->showMessage(tr("Logs copied"), 3000);
     }
 
     void applyTheme() {
@@ -1902,6 +1948,8 @@ private:
     quint64 m_totalSessionTx = 0;
     QLabel *m_configsPageTitle = nullptr;
     QLabel *m_logsPageTitle = nullptr;
+    QPushButton *m_copyLogsBtn = nullptr;
+    QPushButton *m_clearLogsBtn = nullptr;
 
     QSystemTrayIcon *m_tray = nullptr;
     QMenu *m_appMenu = nullptr;
