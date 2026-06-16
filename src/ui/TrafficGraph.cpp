@@ -26,14 +26,12 @@ void TrafficGraph::addSample(quint64 rx, quint64 tx) {
     }
     // Update peak
     const quint64 localMax = std::max(rx, tx);
-    if (localMax > m_peakValue) {
-        m_peakValue = localMax;
-    }
+    m_peakValue = std::max(m_peakValue, localMax);
     // Decay peak slowly so graph scales dynamically
     if (m_samples.size() > 10) {
         quint64 maxInWindow = 1;
         for (const auto &s : m_samples) {
-            maxInWindow = std::max(maxInWindow, std::max(s.rx, s.tx));
+            maxInWindow = std::max({maxInWindow, s.rx, s.tx});
         }
         m_peakValue = maxInWindow;
     }
@@ -60,7 +58,9 @@ void TrafficGraph::paintEvent(QPaintEvent *) {
         p.drawLine(0, y, w, y);
     }
 
-    if (m_samples.size() < 2) return;
+    if (m_samples.size() < 2) {
+        return;
+    }
 
     const int n = static_cast<int>(m_samples.size());
     const qreal xStep = static_cast<qreal>(w) / (kMaxSamples - 1);
@@ -73,8 +73,11 @@ void TrafficGraph::paintEvent(QPaintEvent *) {
             const qreal x = xOffset + i * xStep;
             const qreal val = static_cast<qreal>(accessor(m_samples[i]));
             const qreal y = h - (val / peak) * (h - 4) - 2;
-            if (i == 0) path.moveTo(x, y);
-            else        path.lineTo(x, y);
+            if (i == 0) {
+                path.moveTo(x, y);
+            } else {
+                path.lineTo(x, y);
+            }
         }
         return path;
     };

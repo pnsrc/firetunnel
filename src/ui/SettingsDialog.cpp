@@ -539,7 +539,7 @@ SettingsDialog::SettingsDialog(const QString &lang, const AppSettings &settings,
     ttLabel->setOpenExternalLinks(true);
     ttLabel->setMaximumHeight(220);
     ttLabel->setHtml(trustTunnelDetails);
-    aboutLayout->addRow(ru ? "Приложение:" : "Application:", new QLabel("FireTunnel (TrustTunnel Qt Client)", aboutPage));
+    aboutLayout->addRow(ru ? "Приложение:" : "Application:", new QLabel("FireTunnel (TrustTunnel Client)", aboutPage));
     aboutLayout->addRow(ru ? "Версия:" : "Version:", new QLabel(QString::fromLatin1(FIRETUNNEL_VERSION), aboutPage));
     aboutLayout->addRow(ru ? "Git ревизия:" : "Git revision:", new QLabel(QString::fromLatin1(FIRETUNNEL_GIT_VERSION), aboutPage));
     aboutLayout->addRow(ru ? "Версия ядра TrustTunnel:" : "TrustTunnel core version:", new QLabel(QString::fromLatin1(TRUSTTUNNEL_VERSION), aboutPage));
@@ -666,9 +666,13 @@ bool SettingsDialog::clearSslCacheRequested() const { return m_clearSslCache; }
 bool SettingsDialog::resetSettingsRequested() const { return m_resetSettings; }
 bool SettingsDialog::customDnsEnabled() const { return m_customDnsCheck && m_customDnsCheck->isChecked(); }
 QStringList SettingsDialog::customDnsServers() const {
-    if (!m_customDnsEdit) return {};
+    if (!m_customDnsEdit) {
+        return {};
+    }
     const QString text = m_customDnsEdit->toPlainText().trimmed();
-    if (text.isEmpty()) return {};
+    if (text.isEmpty()) {
+        return {};
+    }
     QStringList lines;
     for (const QString &line : text.split('\n', Qt::SkipEmptyParts)) {
         const QString trimmed = line.trimmed();
@@ -680,9 +684,13 @@ QStringList SettingsDialog::customDnsServers() const {
 }
 bool SettingsDialog::domainBypassEnabled() const { return m_domainBypassCheck && m_domainBypassCheck->isChecked(); }
 QStringList SettingsDialog::domainBypassRules() const {
-    if (!m_domainBypassEdit) return {};
+    if (!m_domainBypassEdit) {
+        return {};
+    }
     const QString text = m_domainBypassEdit->toPlainText().trimmed();
-    if (text.isEmpty()) return {};
+    if (text.isEmpty()) {
+        return {};
+    }
     QStringList lines;
     for (const QString &line : text.split('\n', Qt::SkipEmptyParts)) {
         const QString trimmed = line.trimmed();

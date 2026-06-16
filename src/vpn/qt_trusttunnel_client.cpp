@@ -40,10 +40,18 @@ static bool is_process_elevated() {
 
 static ag::LogLevel parse_log_level(const QString &level) {
     const QString l = level.toLower();
-    if (l == "error") return ag::LOG_LEVEL_ERROR;
-    if (l == "warn" || l == "warning") return ag::LOG_LEVEL_WARN;
-    if (l == "debug") return ag::LOG_LEVEL_DEBUG;
-    if (l == "trace") return ag::LOG_LEVEL_TRACE;
+    if (l == "error") {
+        return ag::LOG_LEVEL_ERROR;
+    }
+    if (l == "warn" || l == "warning") {
+        return ag::LOG_LEVEL_WARN;
+    }
+    if (l == "debug") {
+        return ag::LOG_LEVEL_DEBUG;
+    }
+    if (l == "trace") {
+        return ag::LOG_LEVEL_TRACE;
+    }
     return ag::LOG_LEVEL_INFO;
 }
 
